@@ -19,6 +19,12 @@ output "ecr_repository_urls" {
   value       = module.ecr.repository_urls
 }
 
+output "allowed_ip_cidrs" {
+  description = "CIDR blocks allowed to access the application"
+  value       = var.allowed_ip_cidrs
+  sensitive   = true
+}
+
 output "rds_endpoint" {
   description = "RDS Aurora cluster writer endpoint"
   value       = module.rds.endpoint

@@ -98,6 +98,7 @@ k8s-render:
 	@terraform -chdir=terraform workspace select -or-create "$(TF_WORKSPACE)" >/dev/null
 	@ACCOUNT="$$(aws sts get-caller-identity --query Account --output text)"; \
 	TF_OUTPUTS="$$(terraform -chdir=terraform output -no-color -json 2>/dev/null || echo '{}')"; \
+	ALLOWED_IPS="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("allowed_ip_cidrs", {}).get("value", []); print(",".join(v) if isinstance(v, list) else str(v or ""))' 2>/dev/null)"; \
 	RDS_ENDPOINT="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("rds_endpoint", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
 	RDS_PORT="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("rds_port", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
 	RDS_DATABASE_NAME="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("rds_database_name", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
@@ -107,14 +108,14 @@ k8s-render:
 	IRSA_ARN="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("irsa_role_arn", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
 	ACM_CERT_ARN_FROM_TF="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("acm_certificate_arn", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
 	ACM_CERT_ARN="$${ACM_CERT_ARN:-$$ACM_CERT_ARN_FROM_TF}"; \
-	if [ -z "$$RDS_ENDPOINT" ] || [ -z "$$RDS_PORT" ] || [ -z "$$RDS_DATABASE_NAME" ] || [ -z "$$RDS_MASTER_USERNAME" ] || [ -z "$$REDIS_ENDPOINT" ] || [ -z "$$WAF_ARN" ] || [ -z "$$IRSA_ARN" ]; then \
+	if [ -z "$$ALLOWED_IPS" ] || [ -z "$$RDS_ENDPOINT" ] || [ -z "$$RDS_PORT" ] || [ -z "$$RDS_DATABASE_NAME" ] || [ -z "$$RDS_MASTER_USERNAME" ] || [ -z "$$REDIS_ENDPOINT" ] || [ -z "$$WAF_ARN" ] || [ -z "$$IRSA_ARN" ]; then \
 	  echo "Missing Terraform outputs. Run make tf-apply and make sure it completes successfully before rendering Kubernetes manifests."; \
 	  rm -rf "$(K8S_RENDER_DIR)"; \
 	  exit 1; \
 	fi; \
-	export ACCOUNT RDS_ENDPOINT RDS_PORT RDS_DATABASE_NAME RDS_MASTER_USERNAME REDIS_ENDPOINT WAF_ARN IRSA_ARN ACM_CERT_ARN; \
+	export ACCOUNT ALLOWED_IPS RDS_ENDPOINT RDS_PORT RDS_DATABASE_NAME RDS_MASTER_USERNAME REDIS_ENDPOINT WAF_ARN IRSA_ARN ACM_CERT_ARN; \
 	find "$(K8S_RENDER_DIR)" -name deployment.yaml -print0 | xargs -0 perl -0pi -e 's/ACCOUNT/$$ENV{ACCOUNT}/g'; \
-	perl -0pi -e 's|REPLACE_WITH_RDS_ENDPOINT|$$ENV{RDS_ENDPOINT}|g; s|REPLACE_WITH_RDS_PORT|$$ENV{RDS_PORT}|g; s|REPLACE_WITH_RDS_DATABASE_NAME|$$ENV{RDS_DATABASE_NAME}|g; s|REPLACE_WITH_RDS_MASTER_USERNAME|$$ENV{RDS_MASTER_USERNAME}|g; s|REPLACE_WITH_REDIS_ENDPOINT|$$ENV{REDIS_ENDPOINT}|g' "$(K8S_RENDER_DIR)/configmap.yaml"; \
+	perl -0pi -e 's|REPLACE_WITH_ALLOWED_IPS|$$ENV{ALLOWED_IPS}|g; s|REPLACE_WITH_RDS_ENDPOINT|$$ENV{RDS_ENDPOINT}|g; s|REPLACE_WITH_RDS_PORT|$$ENV{RDS_PORT}|g; s|REPLACE_WITH_RDS_DATABASE_NAME|$$ENV{RDS_DATABASE_NAME}|g; s|REPLACE_WITH_RDS_MASTER_USERNAME|$$ENV{RDS_MASTER_USERNAME}|g; s|REPLACE_WITH_REDIS_ENDPOINT|$$ENV{REDIS_ENDPOINT}|g' "$(K8S_RENDER_DIR)/configmap.yaml"; \
 	perl -0pi -e 's|arn:aws:iam::ACCOUNT:role/investments-assistant-investments-sa-role|$$ENV{IRSA_ARN}|g; s/ACCOUNT/$$ENV{ACCOUNT}/g' "$(K8S_RENDER_DIR)/serviceaccount.yaml"; \
 	perl -0pi -e 's|arn:aws:wafv2:eu-south-2:ACCOUNT:regional/webacl/investments-allowlist/WEBACL_ID|$$ENV{WAF_ARN}|g; s/ACCOUNT/$$ENV{ACCOUNT}/g' "$(K8S_RENDER_DIR)/ingress.yaml"; \
 	python3 scripts/render_ingress.py "$(K8S_RENDER_DIR)/ingress.yaml"

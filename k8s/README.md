@@ -72,7 +72,8 @@ flowchart LR
 `configmap.yaml` provides non-secret values such as service URLs, trading mode
 defaults, report paths, scheduler intervals, and `POSTGRES_SSL_MODE=require`
 for encrypted Aurora PostgreSQL connections. `make k8s-render` replaces the
-RDS host, port, database name, and username from Terraform outputs.
+gateway `ALLOWED_IPS` value and the RDS host, port, database name, and username
+from Terraform outputs.
 
 `external-secrets.yaml` expects AWS Secrets Manager secret `investments/prod` to
 contain sensitive values such as:
@@ -95,6 +96,8 @@ credentials through Terraform `app_secret_values`, such as:
 Before deploying to a real cluster, replace these placeholders:
 
 - `ACCOUNT` in all Deployment image names.
+- `REPLACE_WITH_ALLOWED_IPS` in `configmap.yaml`; use the `allowed_ip_cidrs`
+  Terraform output rendered as a comma-separated list.
 - `REPLACE_WITH_RDS_ENDPOINT` in `configmap.yaml`; use the `rds_endpoint`
   Terraform output.
 - `REPLACE_WITH_RDS_PORT` in `configmap.yaml`; use the `rds_port` Terraform

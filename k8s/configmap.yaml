@@ -7,6 +7,7 @@ data:
   ENVIRONMENT: "production"
   LOG_LEVEL: "INFO"
   EXTERNAL_API_ACCESS: "false"
+  ALLOWED_IPS: "REPLACE_WITH_ALLOWED_IPS"
   # Internal K8s service DNS (cluster-local, not exposed)
   MARKET_DATA_URL: "http://market-data:8001"
   NEWS_URL: "http://news:8002"
