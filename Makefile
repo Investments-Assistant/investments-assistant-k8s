@@ -1,6 +1,6 @@
 .PHONY: help dev-up dev-down dev-build dev-logs dev-ps \
         deploy-e2e kubeconfig k8s-render k8s-apply-rendered \
-        k8s-rollout-status llm-model k8s-apply k8s-delete k8s-status \
+        k8s-wait-external-secrets k8s-rollout-status llm-model k8s-apply k8s-delete k8s-status \
         tf-init tf-plan tf-apply tf-destroy \
         ecr-login push lint test
 
@@ -75,8 +75,9 @@ dev-ps:
 deploy-e2e:
 	@$(MAKE) tf-apply
 	@$(MAKE) kubeconfig
+	@$(MAKE) k8s-render
 	@$(MAKE) push
-	@$(MAKE) k8s-apply-rendered
+	@$(MAKE) k8s-apply K8S_MANIFEST_DIR=$(K8S_RENDER_DIR)
 	@$(MAKE) k8s-rollout-status
 	@$(MAKE) llm-model
 	@echo "End-to-end deployment complete."
@@ -108,16 +109,12 @@ k8s-render:
 	  rm -rf "$(K8S_RENDER_DIR)"; \
 	  exit 1; \
 	fi; \
-	if [ -z "$$ACM_CERT_ARN" ]; then \
-	  echo "Missing ACM certificate ARN. Set app_domain_name and app_route53_zone_id or app_route53_zone_name in terraform/terraform.tfvars, or pass ACM_CERT_ARN=arn:aws:acm:... as an override."; \
-	  rm -rf "$(K8S_RENDER_DIR)"; \
-	  exit 1; \
-	fi; \
 	export ACCOUNT RDS_ENDPOINT REDIS_ENDPOINT WAF_ARN IRSA_ARN ACM_CERT_ARN; \
 	find "$(K8S_RENDER_DIR)" -name deployment.yaml -print0 | xargs -0 perl -0pi -e 's/ACCOUNT/$$ENV{ACCOUNT}/g'; \
 	perl -0pi -e 's|REPLACE_WITH_RDS_ENDPOINT|$$ENV{RDS_ENDPOINT}|g; s|REPLACE_WITH_REDIS_ENDPOINT|$$ENV{REDIS_ENDPOINT}|g' "$(K8S_RENDER_DIR)/configmap.yaml"; \
 	perl -0pi -e 's|arn:aws:iam::ACCOUNT:role/investments-assistant-investments-sa-role|$$ENV{IRSA_ARN}|g; s/ACCOUNT/$$ENV{ACCOUNT}/g' "$(K8S_RENDER_DIR)/serviceaccount.yaml"; \
-	perl -0pi -e 's|arn:aws:acm:eu-south-2:ACCOUNT:certificate/CERT_ID|$$ENV{ACM_CERT_ARN}|g; s|arn:aws:wafv2:eu-south-2:ACCOUNT:regional/webacl/investments-allowlist/WEBACL_ID|$$ENV{WAF_ARN}|g; s/ACCOUNT/$$ENV{ACCOUNT}/g' "$(K8S_RENDER_DIR)/ingress.yaml"
+	perl -0pi -e 's|arn:aws:wafv2:eu-south-2:ACCOUNT:regional/webacl/investments-allowlist/WEBACL_ID|$$ENV{WAF_ARN}|g; s/ACCOUNT/$$ENV{ACCOUNT}/g' "$(K8S_RENDER_DIR)/ingress.yaml"; \
+	python3 scripts/render_ingress.py "$(K8S_RENDER_DIR)/ingress.yaml"
 	@if find "$(K8S_RENDER_DIR)" -name '*.yaml' -exec grep -nE 'ACCOUNT|CERT_ID|WEBACL_ID|REPLACE_WITH_' {} +; then \
 	  echo "Rendered manifests still contain placeholders."; \
 	  exit 1; \
@@ -148,11 +145,26 @@ k8s-apply:
 	kubectl apply -f $(K8S_MANIFEST_DIR)/configmap.yaml
 	kubectl apply -f $(K8S_MANIFEST_DIR)/serviceaccount.yaml
 	kubectl apply -f $(K8S_MANIFEST_DIR)/reports-pvc.yaml
+	$(MAKE) k8s-wait-external-secrets
 	kubectl apply -f $(K8S_MANIFEST_DIR)/external-secrets.yaml
 	@for svc in $(K8S_SERVICES); do \
 	  kubectl apply -f $(K8S_MANIFEST_DIR)/$$svc/; \
 	done
 	kubectl apply -f $(K8S_MANIFEST_DIR)/ingress.yaml
+
+k8s-wait-external-secrets:
+	@echo "Waiting for External Secrets CRDs"
+	@for crd in secretstores.external-secrets.io externalsecrets.external-secrets.io; do \
+	  for i in $$(seq 1 60); do \
+	    if kubectl get crd $$crd >/dev/null 2>&1; then break; fi; \
+	    if [ "$$i" = "60" ]; then \
+	      echo "Timed out waiting for CRD $$crd. Check Terraform helm_release.eso."; \
+	      exit 1; \
+	    fi; \
+	    sleep 2; \
+	  done; \
+	  kubectl wait --for=condition=Established crd/$$crd --timeout=120s; \
+	done
 
 k8s-delete:
 	kubectl delete namespace $(K8S_NS) --ignore-not-found
@@ -179,7 +191,8 @@ ecr-login:
 	  docker login --username AWS --password-stdin $(ECR_REGISTRY)
 
 push: ecr-login
-	@for svc in $(APP_SERVICES); do \
+	@set -e; \
+	for svc in $(APP_SERVICES); do \
 	  echo "▶ Building $$svc …"; \
 	  docker build -t $(ECR_REGISTRY)/investments-$$svc:latest services/$$svc; \
 	  docker push $(ECR_REGISTRY)/investments-$$svc:latest; \

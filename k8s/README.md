@@ -45,7 +45,7 @@ flowchart LR
 | `namespace.yaml` | Creates the `investments` namespace. |
 | `configmap.yaml` | Non-secret runtime settings and internal service URLs. |
 | `serviceaccount.yaml` | `investments-sa` with an IRSA role annotation for AWS access. |
-| `external-secrets.yaml` | Pulls `investments/prod` from AWS Secrets Manager into `investments-secrets`. |
+| `external-secrets.yaml` | Pulls `investments/prod` from AWS Secrets Manager into `investments-secrets` using External Secrets `v1` CRDs. |
 | `reports-pvc.yaml` | Shared ReadWriteMany PVC backed by the Terraform-created EFS StorageClass `efs-sc`. |
 | `ingress.yaml` | Internet-facing ALB Ingress that sends all traffic to `gateway:8000`. |
 | `llm/*` | Self-hosted Ollama-compatible LLM Deployment, Service, and model PVC. |
@@ -98,7 +98,8 @@ Before deploying to a real cluster, replace these placeholders:
   Terraform output when Redis AUTH is disabled. If Redis AUTH is enabled, put a
   full authenticated `REDIS_URL` in Terraform `app_secret_values` instead.
 - ACM certificate ARN in `ingress.yaml`; use the `acm_certificate_arn`
-  Terraform output or pass `ACM_CERT_ARN` to the Makefile as an override.
+  Terraform output or pass `ACM_CERT_ARN` to the Makefile as an override. If no
+  certificate is available, the Makefile renders an HTTP-only ALB ingress.
 - WAF WebACL ARN in `ingress.yaml`; use the `waf_webacl_arn` Terraform output.
 - IRSA role ARN in `serviceaccount.yaml`; use the `irsa_role_arn` Terraform output.
 
@@ -113,9 +114,10 @@ Terraform, ECR, ACM, WAF, and GitHub Actions.
 2. ConfigMap.
 3. ServiceAccount.
 4. Reports PVC.
-5. ExternalSecret.
-6. Service deployments and ClusterIP Services.
-7. Ingress.
+5. Wait for External Secrets CRDs.
+6. ExternalSecret.
+7. Service deployments and ClusterIP Services.
+8. Ingress.
 
 This order matters because pods reference `investments-sa` and
 `investments-secrets`, and the gateway and scheduler mount `reports-pvc`.

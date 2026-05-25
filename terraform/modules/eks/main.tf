@@ -460,5 +460,10 @@ resource "helm_release" "eso" {
   timeout          = 900
   wait             = true
 
+  set {
+    name  = "installCRDs"
+    value = "true"
+  }
+
   depends_on = [helm_release.albc]
 }

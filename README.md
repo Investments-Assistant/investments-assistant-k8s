@@ -145,6 +145,9 @@ not committed.
 If you already have a certificate outside Terraform, you can override the
 Terraform output with `ACM_CERT_ARN=arn:aws:acm:...`.
 
+If no certificate is available, the generated ingress is HTTP-only. Set
+`app_domain_name` and a Route 53 zone in Terraform to enable HTTPS.
+
 By default the command does not pull an Ollama model from an external registry.
 For non-air-gapped deployments, add `PULL_LLM_MODEL=true` to pull the configured
 model into the `llm` pod.

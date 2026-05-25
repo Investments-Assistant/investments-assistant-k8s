@@ -5,7 +5,7 @@
 # Prerequisites:
 #   1. AWS Load Balancer Controller installed in the cluster
 #   2. AWS WAF WebACL created by Terraform (see terraform/modules/waf/)
-#   3. ACM certificate ARN set below
+#   3. Optional ACM certificate ARN rendered below for HTTPS
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
