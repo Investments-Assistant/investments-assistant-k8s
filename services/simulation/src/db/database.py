@@ -4,7 +4,11 @@ from sqlalchemy.orm import DeclarativeBase
 from src.config import settings
 
 engine = create_async_engine(
-    settings.database_url, pool_size=3, max_overflow=5, pool_pre_ping=True
+    settings.database_url,
+    connect_args={"ssl": settings.postgres_ssl_mode},
+    pool_size=3,
+    max_overflow=5,
+    pool_pre_ping=True,
 )
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 

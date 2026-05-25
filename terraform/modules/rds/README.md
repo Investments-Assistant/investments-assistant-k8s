@@ -33,6 +33,8 @@ defaults to `null`, which lets AWS choose a valid regional default; pin
 | --- | --- |
 | `endpoint` | Aurora cluster writer endpoint. |
 | `port` | Aurora cluster port. |
+| `database_name` | Aurora database name configured at cluster creation. |
+| `master_username` | Aurora master username configured at cluster creation. |
 
 ## Used By
 

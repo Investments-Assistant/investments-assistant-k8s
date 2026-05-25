@@ -142,8 +142,9 @@ make deploy-e2e
 images to ECR, renders Kubernetes manifests with Terraform outputs, applies
 them, and waits for rollouts. Terraform writes `db_password` from
 `terraform.tfvars` into the `investments/prod` Secrets Manager secret as
-`POSTGRES_PASSWORD`. Rendered manifests are written to `.rendered/k8s` and are
-not committed.
+`POSTGRES_PASSWORD`; the rendered ConfigMap uses Terraform outputs for the RDS
+host, port, database name, and username. Rendered manifests are written to
+`.rendered/k8s` and are not committed.
 
 If you already have a certificate outside Terraform, you can override the
 Terraform output with `ACM_CERT_ARN=arn:aws:acm:...`.

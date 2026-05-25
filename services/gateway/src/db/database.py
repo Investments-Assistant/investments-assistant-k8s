@@ -9,6 +9,7 @@ from src.config import settings
 
 engine = create_async_engine(
     settings.database_url,
+    connect_args={"ssl": settings.postgres_ssl_mode},
     pool_size=5,
     max_overflow=10,
     pool_pre_ping=True,

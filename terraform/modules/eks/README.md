@@ -11,6 +11,8 @@ storage support used by the application manifests.
 - `aws_iam_role_policy_attachment.node_worker`: attaches worker, CNI, ECR read,
   and SSM managed policies.
 - `aws_security_group.cluster`: control plane security group.
+- `aws_security_group.node`: legacy worker security group retained for existing
+  stacks; current managed nodes use the EKS-created cluster security group.
 - `aws_eks_cluster.main`: EKS cluster in private subnets.
 - `tls_certificate.eks`: reads the cluster OIDC issuer certificate.
 - `aws_iam_openid_connect_provider.eks`: OIDC provider for IRSA.

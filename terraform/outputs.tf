@@ -24,6 +24,21 @@ output "rds_endpoint" {
   value       = module.rds.endpoint
 }
 
+output "rds_port" {
+  description = "RDS Aurora PostgreSQL port"
+  value       = module.rds.port
+}
+
+output "rds_database_name" {
+  description = "RDS Aurora PostgreSQL database name"
+  value       = module.rds.database_name
+}
+
+output "rds_master_username" {
+  description = "RDS Aurora PostgreSQL master username"
+  value       = module.rds.master_username
+}
+
 output "redis_endpoint" {
   description = "ElastiCache Redis primary endpoint"
   value       = module.elasticache.endpoint

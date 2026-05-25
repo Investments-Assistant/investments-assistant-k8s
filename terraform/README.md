@@ -50,10 +50,10 @@ avoid pinning a version that is not available in the selected region. See
 ## Main Outputs
 
 Outputs in `outputs.tf` expose the EKS endpoint/name/CA data, ECR repository
-URLs, RDS endpoint, Redis endpoint, WAF WebACL ARN, IRSA role ARN, EFS ID, and
-VPC ID. When enabled, the ACM certificate ARN is also exposed for the ALB
-Ingress. Some of these values need to be copied into Kubernetes manifests or CI
-secrets before deploying workloads.
+URLs, RDS endpoint, RDS port, RDS database name, RDS master username, Redis
+endpoint, WAF WebACL ARN, IRSA role ARN, EFS ID, and VPC ID. When enabled, the
+ACM certificate ARN is also exposed for the ALB Ingress. The Makefile renders
+these values into Kubernetes manifests before deploying workloads.
 
 ## Modules
 
