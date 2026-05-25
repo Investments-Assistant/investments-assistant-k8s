@@ -1,6 +1,6 @@
 .PHONY: help dev-up dev-down dev-build dev-logs dev-ps \
         deploy-e2e kubeconfig k8s-render k8s-apply-rendered \
-        k8s-wait-external-secrets k8s-rollout-status llm-model k8s-apply k8s-delete k8s-status \
+        k8s-wait-external-secrets k8s-wait-pvcs k8s-rollout-status llm-model k8s-apply k8s-delete k8s-status \
         tf-init tf-plan tf-apply tf-destroy \
         ecr-login push lint test
 
@@ -145,6 +145,8 @@ k8s-apply:
 	kubectl apply -f $(K8S_MANIFEST_DIR)/configmap.yaml
 	kubectl apply -f $(K8S_MANIFEST_DIR)/serviceaccount.yaml
 	kubectl apply -f $(K8S_MANIFEST_DIR)/reports-pvc.yaml
+	kubectl apply -f $(K8S_MANIFEST_DIR)/llm/pvc.yaml
+	$(MAKE) k8s-wait-pvcs
 	$(MAKE) k8s-wait-external-secrets
 	kubectl apply -f $(K8S_MANIFEST_DIR)/external-secrets.yaml
 	@for svc in $(K8S_SERVICES); do \
@@ -164,6 +166,21 @@ k8s-wait-external-secrets:
 	    sleep 2; \
 	  done; \
 	  kubectl wait --for=condition=Established crd/$$crd --timeout=120s; \
+	done
+
+k8s-wait-pvcs:
+	@echo "Waiting for application PVCs"
+	@for pvc in reports-pvc llm-models-pvc; do \
+	  for i in $$(seq 1 90); do \
+	    phase="$$(kubectl -n $(K8S_NS) get pvc $$pvc -o jsonpath='{.status.phase}' 2>/dev/null || true)"; \
+	    if [ "$$phase" = "Bound" ]; then break; fi; \
+	    if [ "$$i" = "90" ]; then \
+	      echo "Timed out waiting for PVC $$pvc to bind. Check the efs-sc StorageClass and EFS CSI driver."; \
+	      kubectl -n $(K8S_NS) describe pvc $$pvc || true; \
+	      exit 1; \
+	    fi; \
+	    sleep 2; \
+	  done; \
 	done
 
 k8s-delete:

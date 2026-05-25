@@ -12,6 +12,7 @@ flowchart LR
     ALB --> WAF[AWS WAF allowlist]
     WAF --> Gateway[gateway Deployment]
     Gateway --> LLM[llm Deployment]
+    LLM --> LLMPVC[llm-models-pvc on efs-sc]
 
     Gateway --> MarketData[market-data Service]
     Gateway --> Forex[forex Service]
@@ -48,7 +49,7 @@ flowchart LR
 | `external-secrets.yaml` | Pulls `investments/prod` from AWS Secrets Manager into `investments-secrets` using External Secrets `v1` CRDs. |
 | `reports-pvc.yaml` | Shared ReadWriteMany PVC backed by the Terraform-created EFS StorageClass `efs-sc`. |
 | `ingress.yaml` | Internet-facing ALB Ingress that sends all traffic to `gateway:8000`. |
-| `llm/*` | Self-hosted Ollama-compatible LLM Deployment, Service, and model PVC. |
+| `llm/*` | Self-hosted Ollama-compatible LLM Deployment, ClusterIP Service, and model PVC. The Deployment targets the Terraform-created `workload=llm` node group. |
 | `<service>/deployment.yaml` | Service-specific Deployment. |
 | `<service>/service.yaml` | Service-specific ClusterIP Service. |
 | `gateway/hpa.yaml` | HorizontalPodAutoscaler for the gateway. |
@@ -113,14 +114,16 @@ Terraform, ECR, ACM, WAF, and GitHub Actions.
 1. Namespace.
 2. ConfigMap.
 3. ServiceAccount.
-4. Reports PVC.
-5. Wait for External Secrets CRDs.
-6. ExternalSecret.
-7. Service deployments and ClusterIP Services.
-8. Ingress.
+4. Reports PVC and LLM model PVC.
+5. Wait for PVCs to bind.
+6. Wait for External Secrets CRDs.
+7. ExternalSecret.
+8. Service deployments and ClusterIP Services.
+9. Ingress.
 
 This order matters because pods reference `investments-sa` and
-`investments-secrets`, and the gateway and scheduler mount `reports-pvc`.
+`investments-secrets`, the gateway and scheduler mount `reports-pvc`, and the
+LLM pod mounts `llm-models-pvc`.
 
 ## Local LLM Model
 
@@ -136,3 +139,8 @@ ollama pull llama3.1:8b-instruct
 For stricter no-egress deployments, prebuild an internal Ollama image or preload
 the PVC from an internal artifact source instead of pulling from the public
 Ollama registry at runtime.
+
+The LLM pod has `nodeSelector: workload=llm` and tolerates the matching
+`NoSchedule` taint from the Terraform EKS module. Keep
+`enable_llm_node_group=true` or remove those scheduling rules if you want to run
+Ollama on the general worker nodes.

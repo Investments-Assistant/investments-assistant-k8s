@@ -15,6 +15,13 @@ spec:
       labels:
         app: llm
     spec:
+      nodeSelector:
+        workload: llm
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: llm
+          effect: NoSchedule
       containers:
         - name: ollama
           image: ollama/ollama:latest

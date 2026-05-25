@@ -41,6 +41,7 @@ flowchart TB
 
     Gateway --> EFS[EFS from EKS Terraform module]
     Scheduler --> EFS
+    LLM --> ModelPVC[llm-models-pvc on EFS]
 
     ECR[ECR Terraform module] --> K8s[Kubernetes Deployments]
     Secrets[Secrets/IAM Terraform module] --> K8s
@@ -65,7 +66,8 @@ flowchart TB
 Terraform builds the infrastructure:
 
 - The VPC module creates networking.
-- The EKS module creates the cluster, node group, controllers, and EFS storage.
+- The EKS module creates the cluster, general worker node group, dedicated LLM
+  node group, controllers, and EFS storage.
 - The ECR module creates one image repository per service.
 - The ACM module creates and validates the ALB HTTPS certificate when
   `app_domain_name` and either `app_route53_zone_id` or
@@ -84,6 +86,7 @@ Kubernetes then deploys the application:
 - `investments-secrets` is populated from AWS Secrets Manager by External
   Secrets Operator.
 - `reports-pvc` is mounted by gateway and scheduler for generated reports.
+- `llm-models-pvc` is mounted by the Ollama deployment for local model storage.
 
 The service layer provides agent capabilities:
 
@@ -155,6 +158,10 @@ model into the `llm` pod.
 The Makefile assumes AWS region `eu-south-2` by default. Keep Terraform, ECR,
 ACM, WAF, Kubernetes manifests, and GitHub Actions aligned to the same region.
 Terraform targets EKS Kubernetes `1.33` by default.
+
+The self-hosted LLM deployment is scheduled onto a dedicated EKS node group by
+default. Keep `enable_llm_node_group=true` in Terraform unless you resize the
+general worker nodes enough to run the Ollama pod.
 
 ## Important Notes
 

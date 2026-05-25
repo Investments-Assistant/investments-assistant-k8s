@@ -80,42 +80,6 @@ resource "aws_security_group" "cluster" {
   tags = { Name = "${var.cluster_name}-cluster-sg" }
 }
 
-resource "aws_security_group" "node" {
-  name        = "${var.cluster_name}-node-sg"
-  description = "EKS worker node SG"
-  vpc_id      = var.vpc_id
-
-  ingress {
-    from_port = 0
-    to_port   = 0
-    protocol  = "-1"
-    self      = true
-  }
-
-  ingress {
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    security_groups = [aws_security_group.cluster.id]
-  }
-
-  ingress {
-    from_port       = 1025
-    to_port         = 65535
-    protocol        = "tcp"
-    security_groups = [aws_security_group.cluster.id]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = { Name = "${var.cluster_name}-node-sg" }
-}
-
 # ── EKS Cluster ───────────────────────────────────────────────────────────────
 resource "aws_eks_cluster" "main" {
   name     = var.cluster_name
@@ -157,6 +121,36 @@ resource "aws_eks_node_group" "main" {
     desired_size = var.node_desired_size
     min_size     = var.node_min_size
     max_size     = var.node_max_size
+  }
+
+  update_config { max_unavailable = 1 }
+
+  depends_on = [aws_iam_role_policy_attachment.node_worker]
+}
+
+resource "aws_eks_node_group" "llm" {
+  count = var.enable_llm_node_group ? 1 : 0
+
+  cluster_name    = aws_eks_cluster.main.name
+  node_group_name = "${var.cluster_name}-llm"
+  node_role_arn   = aws_iam_role.node.arn
+  subnet_ids      = var.private_subnet_ids
+  instance_types  = [var.llm_node_instance_type]
+
+  labels = {
+    workload = "llm"
+  }
+
+  taint {
+    key    = "workload"
+    value  = "llm"
+    effect = "NO_SCHEDULE"
+  }
+
+  scaling_config {
+    desired_size = var.llm_node_desired_size
+    min_size     = var.llm_node_min_size
+    max_size     = var.llm_node_max_size
   }
 
   update_config { max_unavailable = 1 }
@@ -268,7 +262,7 @@ resource "aws_security_group" "efs" {
     from_port       = 2049
     to_port         = 2049
     protocol        = "tcp"
-    security_groups = [aws_security_group.node.id]
+    security_groups = [aws_eks_cluster.main.vpc_config[0].cluster_security_group_id]
   }
 
   egress {

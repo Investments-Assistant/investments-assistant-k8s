@@ -23,8 +23,9 @@ flowchart LR
 ## What It Creates
 
 - A VPC with public and private subnets, an internet gateway, and a NAT gateway.
-- An EKS cluster, managed node group, core add-ons, AWS Load Balancer Controller,
-  External Secrets Operator, and EFS support for shared reports.
+- An EKS cluster, general managed node group, dedicated LLM managed node group,
+  core add-ons, AWS Load Balancer Controller, External Secrets Operator, and EFS
+  support for shared reports and local LLM model storage.
 - Aurora PostgreSQL Serverless v2 for service-owned tables.
 - ElastiCache Redis for shared runtime state such as trading mode.
 - One ECR repository per service image.
@@ -38,11 +39,11 @@ flowchart LR
 ## Main Inputs
 
 Inputs are declared in `variables.tf`. Required values are `allowed_ip_cidrs` and
-`db_password`; `app_secret_values`, `redis_auth_token`, `redis_node_type`, and
-`aurora_postgresql_engine_version` are optional. Set `app_domain_name` and
-`app_route53_zone_id` or `app_route53_zone_name` when you want Terraform to
-create the ALB HTTPS certificate. The Aurora engine version defaults to AWS
-regional selection to
+`db_password`; `app_secret_values`, `redis_auth_token`, `redis_node_type`,
+`aurora_postgresql_engine_version`, and LLM node group sizing settings are
+optional. Set `app_domain_name` and `app_route53_zone_id` or
+`app_route53_zone_name` when you want Terraform to create the ALB HTTPS
+certificate. The Aurora engine version defaults to AWS regional selection to
 avoid pinning a version that is not available in the selected region. See
 `terraform.tfvars.example` for the expected shape.
 
@@ -57,7 +58,7 @@ secrets before deploying workloads.
 ## Modules
 
 - `modules/vpc`: network foundation.
-- `modules/eks`: Kubernetes cluster, node group, controllers, and EFS.
+- `modules/eks`: Kubernetes cluster, worker node groups, controllers, and EFS.
 - `modules/rds`: Aurora PostgreSQL.
 - `modules/elasticache`: Redis.
 - `modules/ecr`: service image repositories.

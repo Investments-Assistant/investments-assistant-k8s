@@ -119,6 +119,33 @@ variable "node_desired_size" {
   default = 2
 }
 
+variable "enable_llm_node_group" {
+  description = "Whether to create a dedicated EKS managed node group for the self-hosted LLM pod"
+  type        = bool
+  default     = true
+}
+
+variable "llm_node_instance_type" {
+  description = "EC2 instance type for the dedicated LLM worker node group"
+  type        = string
+  default     = "t3.xlarge"
+}
+
+variable "llm_node_min_size" {
+  type    = number
+  default = 1
+}
+
+variable "llm_node_max_size" {
+  type    = number
+  default = 2
+}
+
+variable "llm_node_desired_size" {
+  type    = number
+  default = 1
+}
+
 variable "k8s_version" {
   description = "Kubernetes version for EKS"
   type        = string

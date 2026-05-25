@@ -32,3 +32,10 @@ node_min_size      = 2
 node_max_size      = 5
 node_desired_size  = 2
 k8s_version        = "1.33"
+
+# Dedicated node group for the self-hosted Ollama LLM pod.
+enable_llm_node_group = true
+llm_node_instance_type = "t3.xlarge"
+llm_node_min_size      = 1
+llm_node_max_size      = 2
+llm_node_desired_size  = 1
