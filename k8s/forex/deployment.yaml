@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forex
+  namespace: investments
+  labels:
+    app: forex
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: forex
+  template:
+    metadata:
+      labels:
+        app: forex
+    spec:
+      serviceAccountName: investments-sa
+      containers:
+        - name: forex
+          image: ACCOUNT.dkr.ecr.eu-south-2.amazonaws.com/investments-forex:latest
+          ports:
+            - containerPort: 8006
+          envFrom:
+            - configMapRef:
+                name: investments-config
+            - secretRef:
+                name: investments-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8006
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8006
+            initialDelaySeconds: 5
+            periodSeconds: 10

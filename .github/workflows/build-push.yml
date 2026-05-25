@@ -1,0 +1,121 @@
+name: Build and Push to ECR
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/**"
+      - ".github/workflows/build-push.yml"
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Service to build (leave blank for all)"
+        required: false
+
+env:
+  AWS_REGION: eu-south-2
+  ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.select.outputs.services }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            gateway:
+              - 'services/gateway/**'
+            market-data:
+              - 'services/market-data/**'
+            news:
+              - 'services/news/**'
+            portfolio:
+              - 'services/portfolio/**'
+            simulation:
+              - 'services/simulation/**'
+            scheduler:
+              - 'services/scheduler/**'
+            forex:
+              - 'services/forex/**'
+
+      - name: Select services
+        id: select
+        env:
+          CHANGED_SERVICES: ${{ steps.filter.outputs.changes }}
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_SERVICE: ${{ github.event.inputs.service }}
+        run: |
+          ALL_SERVICES='["gateway","market-data","news","portfolio","simulation","scheduler","forex"]'
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ -n "$REQUESTED_SERVICE" ]; then
+              echo "services=[\"$REQUESTED_SERVICE\"]" >> "$GITHUB_OUTPUT"
+            else
+              echo "services=$ALL_SERVICES" >> "$GITHUB_OUTPUT"
+            fi
+          elif [ "$CHANGED_SERVICES" = "[]" ] || [ -z "$CHANGED_SERVICES" ]; then
+            echo "services=$ALL_SERVICES" >> "$GITHUB_OUTPUT"
+          else
+            echo "services=$CHANGED_SERVICES" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: changes
+    runs-on: ubuntu-latest
+    # Build all services if workflow_dispatch with no input, else only changed
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.changes.outputs.services) }}
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image metadata
+        id: meta
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "tag=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "repo=${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/investments-${{ matrix.service }}" >> $GITHUB_OUTPUT
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: services/${{ matrix.service }}
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.repo }}:${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.repo }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Update K8s deployment image tag
+        run: |
+          DEPLOY_FILE="k8s/${{ matrix.service }}/deployment.yaml"
+          if [ -f "$DEPLOY_FILE" ]; then
+            sed -i "s|investments-${{ matrix.service }}:.*|investments-${{ matrix.service }}:${{ steps.meta.outputs.tag }}|g" "$DEPLOY_FILE"
+          fi
+
+      - name: Commit updated image tag
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "ci: update ${{ matrix.service }} image to ${{ steps.meta.outputs.tag }}"
+          file_pattern: "k8s/${{ matrix.service }}/deployment.yaml"

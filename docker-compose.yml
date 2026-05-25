@@ -1,0 +1,147 @@
+version: "3.9"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Investment Assistant K8s — Local Development (docker-compose)
+# Mirrors the K8s topology: 7 agent services + postgres + redis.
+# Run: make dev-up
+# ══════════════════════════════════════════════════════════════════════════════
+
+x-agent-defaults: &agent-defaults
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    EXTERNAL_API_ACCESS: "false"
+    LLM_BASE_URL: http://llm:11434/v1
+    POSTGRES_HOST: postgres
+    REDIS_URL: redis://redis:6379/0
+    MARKET_DATA_URL: http://market-data:8001
+    NEWS_URL: http://news:8002
+    PORTFOLIO_URL: http://portfolio:8003
+    SIMULATION_URL: http://simulation:8004
+    SCHEDULER_URL: http://scheduler:8005
+    FOREX_URL: http://forex:8006
+    GATEWAY_URL: http://gateway:8000
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  networks:
+    - internal
+
+services:
+  # ── Infrastructure ─────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-investment_assistant}
+      POSTGRES_USER: ${POSTGRES_USER:-ia_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ia_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  llm:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_KEEP_ALIVE: 24h
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - internal
+
+  # ── Agent Services ─────────────────────────────────────────────────────────
+  gateway:
+    <<: *agent-defaults
+    build:
+      context: services/gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - reports:/app/reports
+
+  market-data:
+    <<: *agent-defaults
+    build:
+      context: services/market-data
+      dockerfile: Dockerfile
+    expose:
+      - "8001"
+
+  news:
+    <<: *agent-defaults
+    build:
+      context: services/news
+      dockerfile: Dockerfile
+    expose:
+      - "8002"
+
+  portfolio:
+    <<: *agent-defaults
+    build:
+      context: services/portfolio
+      dockerfile: Dockerfile
+    expose:
+      - "8003"
+
+  simulation:
+    <<: *agent-defaults
+    build:
+      context: services/simulation
+      dockerfile: Dockerfile
+    expose:
+      - "8004"
+
+  scheduler:
+    <<: *agent-defaults
+    build:
+      context: services/scheduler
+      dockerfile: Dockerfile
+    expose:
+      - "8005"
+    volumes:
+      - reports:/app/reports
+
+  forex:
+    <<: *agent-defaults
+    build:
+      context: services/forex
+      dockerfile: Dockerfile
+    expose:
+      - "8006"
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_data:
+  reports:
+
+networks:
+  internal:
+    driver: bridge

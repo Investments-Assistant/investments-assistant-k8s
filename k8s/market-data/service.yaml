@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: market-data
+  namespace: investments
+  labels:
+    app: market-data
+spec:
+  selector:
+    app: market-data
+  ports:
+    - port: 8001
+      targetPort: 8001
+      name: http
+  type: ClusterIP

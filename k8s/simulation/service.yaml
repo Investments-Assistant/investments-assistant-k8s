@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: simulation
+  namespace: investments
+  labels:
+    app: simulation
+spec:
+  selector:
+    app: simulation
+  ports:
+    - port: 8004
+      targetPort: 8004
+      name: http
+  type: ClusterIP

@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: market-data
+  namespace: investments
+  labels:
+    app: market-data
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: market-data
+  template:
+    metadata:
+      labels:
+        app: market-data
+    spec:
+      serviceAccountName: investments-sa
+      containers:
+        - name: market-data
+          image: ACCOUNT.dkr.ecr.eu-south-2.amazonaws.com/investments-market-data:latest
+          ports:
+            - containerPort: 8001
+          envFrom:
+            - configMapRef:
+                name: investments-config
+            - secretRef:
+                name: investments-secrets
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "384Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 5
+            periodSeconds: 10

@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: investments-config
+  namespace: investments
+data:
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "INFO"
+  EXTERNAL_API_ACCESS: "false"
+  # Internal K8s service DNS (cluster-local, not exposed)
+  MARKET_DATA_URL: "http://market-data:8001"
+  NEWS_URL: "http://news:8002"
+  PORTFOLIO_URL: "http://portfolio:8003"
+  SIMULATION_URL: "http://simulation:8004"
+  SCHEDULER_URL: "http://scheduler:8005"
+  FOREX_URL: "http://forex:8006"
+  GATEWAY_URL: "http://gateway:8000"
+  # Trading defaults (override via Secret for sensitive values)
+  TRADING_MODE: "recommend"
+  AUTO_MAX_TRADE_USD: "500.0"
+  AUTO_DAILY_LOSS_LIMIT_USD: "1000.0"
+  MARKET_DATA_REFRESH_MINUTES: "5"
+  WEEKLY_REPORT_DAY: "6"
+  WEEKLY_REPORT_HOUR: "18"
+  WEEKLY_REPORT_MINUTE: "0"
+  REPORTS_DIR: "/app/reports"
+  LLM_BASE_URL: "http://llm:11434/v1"
+  LLM_MODEL_NAME: "llama3.1:8b-instruct"
+  AGENT_MAX_TOKENS: "4096"
+  AGENT_MAX_CONTEXT_MESSAGES: "20"
+  AGENT_MAX_TOOL_ITERATIONS: "8"
+  LLM_REQUEST_TIMEOUT_SECONDS: "300"
+  # Terraform outputs; replace before applying to EKS.
+  POSTGRES_HOST: "REPLACE_WITH_RDS_ENDPOINT"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "investments"
+  POSTGRES_USER: "investments"
+  REDIS_URL: "redis://REPLACE_WITH_REDIS_ENDPOINT:6379/0"
+  ALPACA_PAPER: "true"
+  BINANCE_TESTNET: "true"
+  IBKR_ENABLED: "false"

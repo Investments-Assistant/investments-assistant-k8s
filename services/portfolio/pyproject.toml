@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "investments-portfolio"
+version = "1.0.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic-settings>=2.3",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.29",
+    "redis[asyncio]>=5.0",
+    "alpaca-py>=0.30",
+    "coinbase-advanced-py>=1.4",
+    "python-binance>=1.0.19",
+    "ib_insync>=0.9.86",
+]

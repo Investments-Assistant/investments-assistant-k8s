@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: simulation
+  namespace: investments
+  labels:
+    app: simulation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: simulation
+  template:
+    metadata:
+      labels:
+        app: simulation
+    spec:
+      serviceAccountName: investments-sa
+      containers:
+        - name: simulation
+          image: ACCOUNT.dkr.ecr.eu-south-2.amazonaws.com/investments-simulation:latest
+          ports:
+            - containerPort: 8004
+          envFrom:
+            - configMapRef:
+                name: investments-config
+            - secretRef:
+                name: investments-secrets
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1024Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8004
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8004
+            initialDelaySeconds: 5
+            periodSeconds: 10
