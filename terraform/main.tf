@@ -8,7 +8,7 @@ locals {
 
 # ── VPC ──────────────────────────────────────────────────────────────────────
 module "vpc" {
-  source = "./modules/vpc"
+  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//vpc?ref=v1.0.0"
 
   cluster_name = var.cluster_name
   azs          = local.azs
@@ -16,7 +16,7 @@ module "vpc" {
 
 # ── EKS ──────────────────────────────────────────────────────────────────────
 module "eks" {
-  source = "./modules/eks"
+  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//eks?ref=v1.0.0"
 
   cluster_name       = var.cluster_name
   k8s_version        = var.k8s_version
@@ -39,7 +39,7 @@ module "eks" {
 
 # ── RDS Aurora PostgreSQL Serverless v2 ──────────────────────────────────────
 module "rds" {
-  source = "./modules/rds"
+  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//rds?ref=v1.0.0"
 
   cluster_name       = var.cluster_name
   vpc_id             = module.vpc.vpc_id
@@ -55,7 +55,7 @@ module "rds" {
 
 # ── ElastiCache Redis ─────────────────────────────────────────────────────────
 module "elasticache" {
-  source = "./modules/elasticache"
+  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//elasticache?ref=v1.0.0"
 
   cluster_name       = var.cluster_name
   vpc_id             = module.vpc.vpc_id
@@ -68,19 +68,19 @@ module "elasticache" {
 
 # ── ECR Repositories ─────────────────────────────────────────────────────────
 module "ecr" {
-  source        = "./modules/ecr"
+  source        = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//ecr?ref=v1.0.0"
   service_names = ["gateway", "market-data", "news", "portfolio", "simulation", "scheduler", "forex"]
 }
 
 # ── WAF WebACL (IP allowlist for ALB) ────────────────────────────────────────
 module "waf" {
-  source           = "./modules/waf"
+  source           = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//waf?ref=v1.0.0"
   allowed_ip_cidrs = var.allowed_ip_cidrs
 }
 
 # ── ACM certificate for ALB HTTPS ────────────────────────────────────────────
 module "acm" {
-  source = "./modules/acm"
+  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//acm?ref=v1.0.0"
 
   domain_name               = var.app_domain_name
   route53_zone_id           = var.app_route53_zone_id
@@ -93,7 +93,7 @@ module "acm" {
 
 # ── Secrets Manager + IRSA ───────────────────────────────────────────────────
 module "secrets" {
-  source = "./modules/secrets"
+  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//secrets?ref=v1.0.0"
 
   cluster_name               = var.cluster_name
   account_id                 = local.account_id

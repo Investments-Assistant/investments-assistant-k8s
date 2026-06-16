@@ -1,8 +1,8 @@
-# Terraform
+# OpenTofu
 
 This folder provisions the AWS infrastructure used by the Kubernetes deployment.
-It composes the local modules under `terraform/modules/` and stores remote state
-in the S3 backend configured in `backend.tf`.
+It composes shared modules from the `Investments-Assistant/terraform-modules`
+repository and stores remote state in the S3 backend configured in `backend.tf`.
 
 ## Stack Overview
 
@@ -32,7 +32,7 @@ flowchart LR
 - An optional DNS-validated ACM certificate for the public ALB.
 - An AWS WAF WebACL that protects the public ALB with an IP allowlist.
 - IAM roles and policies for Kubernetes service accounts and External Secrets.
-- An AWS Secrets Manager secret named `investments/prod`; Terraform writes
+- An AWS Secrets Manager secret named `investments/prod`; OpenTofu writes
   `POSTGRES_PASSWORD` from `db_password` and any entries from
   `app_secret_values`.
 
@@ -42,7 +42,7 @@ Inputs are declared in `variables.tf`. Required values are `allowed_ip_cidrs` an
 `db_password`; `app_secret_values`, `redis_auth_token`, `redis_node_type`,
 `aurora_postgresql_engine_version`, and LLM node group sizing settings are
 optional. Set `app_domain_name` and `app_route53_zone_id` or
-`app_route53_zone_name` when you want Terraform to create the ALB HTTPS
+`app_route53_zone_name` when you want OpenTofu to create the ALB HTTPS
 certificate. The Aurora engine version defaults to AWS regional selection to
 avoid pinning a version that is not available in the selected region. See
 `terraform.tfvars.example` for the expected shape.
@@ -57,22 +57,29 @@ these values into Kubernetes manifests before deploying workloads.
 
 ## Modules
 
-- `modules/vpc`: network foundation.
-- `modules/eks`: Kubernetes cluster, worker node groups, controllers, and EFS.
-- `modules/rds`: Aurora PostgreSQL.
-- `modules/elasticache`: Redis.
-- `modules/ecr`: service image repositories.
-- `modules/acm`: ALB HTTPS certificate and DNS validation.
-- `modules/waf`: ALB-facing WAF allowlist.
-- `modules/secrets`: IAM roles, AWS Secrets Manager permissions, and ALB log bucket.
+The stack consumes these module directories from
+`git@github.com:Investments-Assistant/terraform-modules.git`:
+
+- `vpc`: network foundation.
+- `eks`: Kubernetes cluster, worker node groups, controllers, and EFS.
+- `rds`: Aurora PostgreSQL.
+- `elasticache`: Redis.
+- `ecr`: service image repositories.
+- `acm`: ALB HTTPS certificate and DNS validation.
+- `waf`: ALB-facing WAF allowlist.
+- `secrets`: IAM roles, AWS Secrets Manager permissions, and ALB log bucket.
+
+The source references currently use `ref=main` while the modules repository is
+being bootstrapped. Pin them to a release tag or commit SHA after the first
+module release is published.
 
 ## Basic Usage
 
 ```bash
 cp terraform.tfvars.example terraform.tfvars
-terraform init
-terraform plan -out=tfplan
-terraform apply tfplan
+tofu init
+tofu plan -out=tfplan
+tofu apply tfplan
 ```
 
 Do not commit `terraform.tfvars`, `tfplan`, `.terraform/`, or state files.

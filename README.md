@@ -6,7 +6,7 @@ to EKS, and provisions the AWS infrastructure needed to run them.
 
 The key idea is simple: the gateway owns the user experience and agent loop, and
 specialist services own tools. The gateway talks to those services over internal
-HTTP tool calls. Terraform provides the AWS pieces; Kubernetes runs the service
+HTTP tool calls. OpenTofu provides the AWS pieces; Kubernetes runs the service
 pods.
 
 ## System Diagram
@@ -14,8 +14,8 @@ pods.
 ```mermaid
 flowchart TB
     User[User] --> ALB[ALB Ingress]
-    ACM[ACM Terraform module] --> ALB
-    ALB --> WAF[WAF Terraform module]
+    ACM[ACM OpenTofu module] --> ALB
+    ALB --> WAF[WAF OpenTofu module]
     WAF --> Gateway[gateway service]
 
     Gateway --> LLM[self-hosted llm service]
@@ -30,22 +30,22 @@ flowchart TB
     Scheduler --> News
     Scheduler --> MarketData
 
-    Gateway --> Redis[ElastiCache Terraform module]
+    Gateway --> Redis[ElastiCache OpenTofu module]
     Portfolio --> Redis
 
-    Gateway --> DB[Aurora PostgreSQL Terraform module]
+    Gateway --> DB[Aurora PostgreSQL OpenTofu module]
     News --> DB
     Portfolio --> DB
     Simulation --> DB
     Scheduler --> DB
 
-    Gateway --> EFS[EFS from EKS Terraform module]
+    Gateway --> EFS[EFS from EKS OpenTofu module]
     Scheduler --> EFS
     LLM --> ModelPVC[llm-models-pvc on EFS]
 
-    ECR[ECR Terraform module] --> K8s[Kubernetes Deployments]
-    Secrets[Secrets/IAM Terraform module] --> K8s
-    VPC[VPC Terraform module] --> EKS[EKS Terraform module]
+    ECR[ECR OpenTofu module] --> K8s[Kubernetes Deployments]
+    Secrets[Secrets/IAM OpenTofu module] --> K8s
+    VPC[VPC OpenTofu module] --> EKS[EKS OpenTofu module]
     EKS --> K8s
 ```
 
@@ -53,17 +53,16 @@ flowchart TB
 
 | Path | Purpose |
 | --- | --- |
-| `terraform/` | AWS infrastructure stack and local modules. Start with `terraform/README.md`. |
-| `terraform/modules/*/README.md` | Detailed documentation for each Terraform module. |
+| `terraform/` | AWS infrastructure stack that consumes shared modules from `Investments-Assistant/terraform-modules`. Start with `terraform/README.md`. |
 | `k8s/` | Kubernetes namespace, config, secrets wiring, service deployments, services, PVC, and ingress. See `k8s/README.md`. |
 | `services/` | FastAPI microservices. See `services/README.md` and each service README. |
 | `.github/workflows/` | CI workflows for image build/push and EKS deployment. |
 | `docker-compose.yml` | Local development topology with app services, PostgreSQL, Redis, and Ollama. |
-| `Makefile` | Common local, Kubernetes, Terraform, and ECR commands. |
+| `Makefile` | Common local, Kubernetes, OpenTofu, and ECR commands. |
 
 ## How The Pieces Fit
 
-Terraform builds the infrastructure:
+OpenTofu builds the infrastructure:
 
 - The VPC module creates networking.
 - The EKS module creates the cluster, general worker node group, dedicated LLM
@@ -130,7 +129,7 @@ make lint
 
 1. Fill `terraform/terraform.tfvars` from `terraform/terraform.tfvars.example`.
 2. Set `app_domain_name` and either `app_route53_zone_id` or
-   `app_route53_zone_name` if you want Terraform to create the ALB HTTPS
+   `app_route53_zone_name` if you want OpenTofu to create the ALB HTTPS
    certificate.
 3. Run the end-to-end deployment:
 
@@ -138,35 +137,35 @@ make lint
 make deploy-e2e
 ```
 
-`deploy-e2e` runs Terraform, updates kubeconfig, builds and pushes service
-images to ECR, renders Kubernetes manifests with Terraform outputs, applies
-them, and waits for rollouts. Terraform writes `db_password` from
+`deploy-e2e` runs OpenTofu, updates kubeconfig, builds and pushes service
+images to ECR, renders Kubernetes manifests with OpenTofu outputs, applies
+them, and waits for rollouts. OpenTofu writes `db_password` from
 `terraform.tfvars` into the `investments/prod` Secrets Manager secret as
-`POSTGRES_PASSWORD`; the rendered ConfigMap uses Terraform outputs for the RDS
+`POSTGRES_PASSWORD`; the rendered ConfigMap uses OpenTofu outputs for the RDS
 host, port, database name, username, and application IP allowlist. Rendered
 manifests are written to `.rendered/k8s` and are not committed.
 
-If you already have a certificate outside Terraform, you can override the
-Terraform output with `ACM_CERT_ARN=arn:aws:acm:...`.
+If you already have a certificate outside OpenTofu, you can override the
+OpenTofu output with `ACM_CERT_ARN=arn:aws:acm:...`.
 
 If no certificate is available, the generated ingress is HTTP-only. Set
-`app_domain_name` and a Route 53 zone in Terraform to enable HTTPS.
+`app_domain_name` and a Route 53 zone in OpenTofu to enable HTTPS.
 
 By default the command does not pull an Ollama model from an external registry.
 For non-air-gapped deployments, add `PULL_LLM_MODEL=true` to pull the configured
 model into the `llm` pod.
 
-The Makefile assumes AWS region `eu-south-2` by default. Keep Terraform, ECR,
+The Makefile assumes AWS region `eu-south-2` by default. Keep OpenTofu, ECR,
 ACM, WAF, Kubernetes manifests, and GitHub Actions aligned to the same region.
-Terraform targets EKS Kubernetes `1.33` by default.
+OpenTofu targets EKS Kubernetes `1.33` by default.
 
 The self-hosted LLM deployment is scheduled onto a dedicated EKS node group by
-default. Keep `enable_llm_node_group=true` in Terraform unless you resize the
+default. Keep `enable_llm_node_group=true` in OpenTofu unless you resize the
 general worker nodes enough to run the Ollama pod.
 
 ## Important Notes
 
-- Do not commit `terraform.tfvars`, Terraform state, `.terraform/`, or plan
+- Do not commit `terraform.tfvars`, OpenTofu state, `.terraform/`, or plan
   files.
 - The gateway no longer uses a hosted LLM API. It calls the self-hosted
   OpenAI-compatible endpoint configured by `LLM_BASE_URL`.

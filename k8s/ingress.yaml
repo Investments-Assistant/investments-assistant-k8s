@@ -1,10 +1,10 @@
 # AWS Load Balancer Controller Ingress
 # The ALB is internet-facing but guarded by WAF with an IP allowlist rule
-# (configured in Terraform). This is the only externally reachable service.
+# (configured in OpenTofu). This is the only externally reachable service.
 #
 # Prerequisites:
 #   1. AWS Load Balancer Controller installed in the cluster
-#   2. AWS WAF WebACL created by Terraform (see terraform/modules/waf/)
+#   2. AWS WAF WebACL created by OpenTofu (see the terraform-modules waf module)
 #   3. Optional ACM certificate ARN rendered below for HTTPS
 ---
 apiVersion: networking.k8s.io/v1
@@ -16,12 +16,12 @@ metadata:
     kubernetes.io/ingress.class: alb
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
-    # TLS - rendered from Terraform output acm_certificate_arn by make deploy-e2e
+    # TLS - rendered from OpenTofu output acm_certificate_arn by make deploy-e2e
     alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:eu-south-2:ACCOUNT:certificate/CERT_ID
     alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80,"HTTPS":443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
-    # WAF — replace with your WebACL ARN (created by Terraform)
+    # WAF — replace with your WebACL ARN (created by OpenTofu)
     alb.ingress.kubernetes.io/wafv2-acl-arn: arn:aws:wafv2:eu-south-2:ACCOUNT:regional/webacl/investments-allowlist/WEBACL_ID
     # Health check
     alb.ingress.kubernetes.io/healthcheck-path: /api/health

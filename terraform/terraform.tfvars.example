@@ -5,7 +5,7 @@ environment = "prod"
 # Your home IP (the only one that can reach the UI)
 allowed_ip_cidrs = ["YOUR_HOME_IP/32"]
 
-# Optional ALB HTTPS certificate. If set, Terraform creates and validates an ACM
+# Optional ALB HTTPS certificate. If set, OpenTofu creates and validates an ACM
 # certificate with Route 53 DNS validation.
 app_domain_name                           = null
 app_route53_zone_id                       = null

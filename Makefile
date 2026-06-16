@@ -7,6 +7,7 @@
 SHELL := /bin/bash
 AWS_REGION   ?= eu-south-2
 AWS_ACCOUNT  ?= $(shell aws sts get-caller-identity --query Account --output text)
+TOFU         ?= tofu
 ECR_REGISTRY := $(AWS_ACCOUNT).dkr.ecr.$(AWS_REGION).amazonaws.com
 APP_SERVICES := gateway market-data news portfolio simulation scheduler forex
 K8S_SERVICES := llm $(APP_SERVICES)
@@ -16,8 +17,8 @@ K8S_RENDER_DIR ?= .rendered/k8s
 TF_WORKSPACE ?= prod
 CLUSTER_NAME ?= investments-assistant
 ACM_CERT_ARN ?=
-PULL_LLM_MODEL ?= false
-LLM_MODEL ?= llama3.1:8b-instruct
+PULL_LLM_MODEL ?= true
+LLM_MODEL ?= llama3.1:8b
 
 export ACM_CERT_ARN
 
@@ -40,11 +41,11 @@ help:
 	@echo "    make k8s-delete    Delete all resources"
 	@echo "    make k8s-status    Show pod/service status"
 	@echo ""
-	@echo "Terraform (AWS):"
-	@echo "    make tf-init       terraform init"
-	@echo "    make tf-plan       terraform plan"
-	@echo "    make tf-apply      terraform apply"
-	@echo "    make tf-destroy    terraform destroy"
+	@echo "OpenTofu (AWS):"
+	@echo "    make tf-init       tofu init"
+	@echo "    make tf-plan       tofu plan"
+	@echo "    make tf-apply      tofu apply"
+	@echo "    make tf-destroy    tofu destroy"
 	@echo ""
 	@echo "ECR:"
 	@echo "    make ecr-login     Authenticate Docker to ECR"
@@ -83,8 +84,8 @@ deploy-e2e:
 	@echo "End-to-end deployment complete."
 
 kubeconfig:
-	@terraform -chdir=terraform workspace select -or-create "$(TF_WORKSPACE)" >/dev/null
-	@TF_OUTPUTS="$$(terraform -chdir=terraform output -no-color -json 2>/dev/null || echo '{}')"; \
+	@$(TOFU) -chdir=terraform workspace select -or-create "$(TF_WORKSPACE)" >/dev/null
+	@TF_OUTPUTS="$$($(TOFU) -chdir=terraform output -no-color -json 2>/dev/null || echo '{}')"; \
 	CLUSTER="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("cluster_name", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
 	if [ -z "$$CLUSTER" ]; then CLUSTER="$(CLUSTER_NAME)"; fi; \
 	echo "Updating kubeconfig for $$CLUSTER in $(AWS_REGION)"; \
@@ -95,9 +96,9 @@ k8s-render:
 	@rm -rf "$(K8S_RENDER_DIR)"
 	@mkdir -p "$(dir $(K8S_RENDER_DIR))"
 	@cp -R k8s "$(K8S_RENDER_DIR)"
-	@terraform -chdir=terraform workspace select -or-create "$(TF_WORKSPACE)" >/dev/null
+	@$(TOFU) -chdir=terraform workspace select -or-create "$(TF_WORKSPACE)" >/dev/null
 	@ACCOUNT="$$(aws sts get-caller-identity --query Account --output text)"; \
-	TF_OUTPUTS="$$(terraform -chdir=terraform output -no-color -json 2>/dev/null || echo '{}')"; \
+	TF_OUTPUTS="$$($(TOFU) -chdir=terraform output -no-color -json 2>/dev/null || echo '{}')"; \
 	ALLOWED_IPS="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("allowed_ip_cidrs", {}).get("value", []); print(",".join(v) if isinstance(v, list) else str(v or ""))' 2>/dev/null)"; \
 	RDS_ENDPOINT="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("rds_endpoint", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
 	RDS_PORT="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("rds_port", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
@@ -109,7 +110,7 @@ k8s-render:
 	ACM_CERT_ARN_FROM_TF="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("acm_certificate_arn", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
 	ACM_CERT_ARN="$${ACM_CERT_ARN:-$$ACM_CERT_ARN_FROM_TF}"; \
 	if [ -z "$$ALLOWED_IPS" ] || [ -z "$$RDS_ENDPOINT" ] || [ -z "$$RDS_PORT" ] || [ -z "$$RDS_DATABASE_NAME" ] || [ -z "$$RDS_MASTER_USERNAME" ] || [ -z "$$REDIS_ENDPOINT" ] || [ -z "$$WAF_ARN" ] || [ -z "$$IRSA_ARN" ]; then \
-	  echo "Missing Terraform outputs. Run make tf-apply and make sure it completes successfully before rendering Kubernetes manifests."; \
+	  echo "Missing OpenTofu outputs. Run make tf-apply and make sure it completes successfully before rendering Kubernetes manifests."; \
 	  rm -rf "$(K8S_RENDER_DIR)"; \
 	  exit 1; \
 	fi; \
@@ -164,7 +165,7 @@ k8s-wait-external-secrets:
 	  for i in $$(seq 1 60); do \
 	    if kubectl get crd $$crd >/dev/null 2>&1; then break; fi; \
 	    if [ "$$i" = "60" ]; then \
-	      echo "Timed out waiting for CRD $$crd. Check Terraform helm_release.eso."; \
+	      echo "Timed out waiting for CRD $$crd. Check OpenTofu helm_release.eso."; \
 	      exit 1; \
 	    fi; \
 	    sleep 2; \
@@ -193,18 +194,18 @@ k8s-delete:
 k8s-status:
 	kubectl -n $(K8S_NS) get pods,svc,ingress
 
-# ── Terraform ─────────────────────────────────────────────────────────────────
+# ── OpenTofu ──────────────────────────────────────────────────────────────────
 tf-init:
-	cd terraform && terraform init -upgrade -reconfigure
+	cd terraform && $(TOFU) init -upgrade -reconfigure
 
 tf-plan: tf-init
-	cd terraform && terraform workspace select -or-create $(TF_WORKSPACE)
-	cd terraform && terraform plan -out=tfplan
+	cd terraform && $(TOFU) workspace select -or-create $(TF_WORKSPACE)
+	cd terraform && $(TOFU) plan -out=tfplan
 
 tf-apply: tf-plan
-	cd terraform && terraform apply -auto-approve tfplan
+	cd terraform && $(TOFU) apply -auto-approve tfplan
 tf-destroy:
-	cd terraform && terraform destroy -auto-approve
+	cd terraform && $(TOFU) destroy -auto-approve
 
 # ── ECR ───────────────────────────────────────────────────────────────────────
 ecr-login:

@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.9"
+  required_version = ">= 1.10.0"
 
   required_providers {
     aws = {
@@ -21,10 +21,11 @@ terraform {
   }
 
   backend "s3" {
-    # Created by the core-infra Terraform (already exists)
-    bucket  = "invass-investments-assistant-k8s-terraform-state-20260508003100"
-    key     = "investments-k8s/terraform.tfstate"
-    region  = "eu-south-2"
-    encrypt = true
+    # Created by core-infra OpenTofu (already exists)
+    bucket       = "invass-investments-assistant-k8s-terraform-state-20260508003100"
+    key          = "investments-k8s/terraform.tfstate"
+    region       = "eu-south-2"
+    use_lockfile = true
+    encrypt      = true
   }
 }
