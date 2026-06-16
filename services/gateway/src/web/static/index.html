@@ -9,8 +9,16 @@
 <body>
   <aside id="sidebar">
     <div class="sidebar-header">
-      <span class="logo">📈 InvestAI</span>
+      <span class="logo">InvestAI</span>
       <span class="cluster-badge">AWS K8s</span>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="section-title">Workspaces</div>
+      <div class="workspace-nav">
+        <button id="nav-chat" class="workspace-btn active" onclick="showView('chat')">Chat</button>
+        <button id="nav-portfolio" class="workspace-btn" onclick="showView('portfolio')">Portfolio</button>
+      </div>
     </div>
 
     <div class="sidebar-section">
@@ -67,7 +75,75 @@
 
     <div id="messages" class="messages"></div>
 
-    <div class="input-area">
+    <section id="portfolio-view" class="view hidden">
+      <div class="view-header">
+        <div>
+          <h1>Portfolio Dashboard</h1>
+          <p id="portfolio-updated">Loading portfolio state…</p>
+        </div>
+        <div class="view-actions">
+          <button class="secondary-btn" onclick="askAboutPortfolio()">Ask Assistant</button>
+          <button class="primary-btn" onclick="loadPortfolioDashboard()">Refresh</button>
+        </div>
+      </div>
+
+      <div class="metric-grid">
+        <div class="metric">
+          <span class="metric-label">Known Value</span>
+          <strong id="portfolio-total">$0</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Holdings</span>
+          <strong id="portfolio-holdings-count">0</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Brokers</span>
+          <strong id="portfolio-brokers-count">0</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Open Issues</span>
+          <strong id="portfolio-errors-count">0</strong>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <section class="dashboard-panel">
+          <div class="panel-title">Allocation</div>
+          <div id="allocation-list" class="allocation-list"></div>
+        </section>
+
+        <section class="dashboard-panel">
+          <div class="panel-title">Broker Status</div>
+          <div id="broker-list" class="broker-list"></div>
+        </section>
+
+        <section class="dashboard-panel wide">
+          <div class="panel-title">Holdings</div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Asset</th>
+                  <th>Broker</th>
+                  <th>Quantity</th>
+                  <th>Price</th>
+                  <th>Value</th>
+                  <th>P&amp;L</th>
+                </tr>
+              </thead>
+              <tbody id="holdings-table"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="dashboard-panel wide">
+          <div class="panel-title">Recent Trades</div>
+          <div id="portfolio-trades-table" class="compact-list"></div>
+        </section>
+      </div>
+    </section>
+
+    <div id="chat-input-area" class="input-area">
       <textarea
         id="user-input"
         placeholder="Ask about markets, request analysis, run simulations…"
@@ -78,7 +154,7 @@
     </div>
 
     <div class="disclaimer">
-      ⚠️ For informational purposes only. Not financial advice. Always consult a qualified advisor.
+      For informational purposes only. Not financial advice. Always consult a qualified advisor.
     </div>
   </main>
 

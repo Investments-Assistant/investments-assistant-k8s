@@ -9,6 +9,7 @@ let currentAssistantText = '';
 let reconnectTimer = null;
 let reconnectDelay = 1000;
 const MAX_RECONNECT = 30000;
+let latestPortfolioDashboard = null;
 
 // Map tool names to the owning agent for display
 const TOOL_AGENTS = {
@@ -68,11 +69,16 @@ function handleEvent(event) {
 // ── Message rendering ─────────────────────────────────────────────────────────
 
 function appendUserMessage(text) {
+  appendChatMessage('user', text);
+}
+
+function appendChatMessage(role, text, createdAt = null) {
   const div = document.createElement('div');
-  div.className = 'msg user';
+  div.className = `msg ${role}`;
+  const body = role === 'assistant' ? markdownToHtml(text) : escapeHtml(text);
   div.innerHTML = `
-    <div class="msg-bubble">${escapeHtml(text)}</div>
-    <div class="msg-time">${timeNow()}</div>`;
+    <div class="msg-bubble">${body}</div>
+    <div class="msg-time">${createdAt ? formatTime(createdAt) : timeNow()}</div>`;
   messagesEl().appendChild(div);
   scrollBottom();
 }
@@ -141,7 +147,7 @@ function appendToolResult(name, resultStr) {
 function appendErrorMessage(msg) {
   const div = document.createElement('div');
   div.className = 'msg assistant';
-  div.innerHTML = `<div class="msg-bubble" style="border-color:#ef4444;color:#ef4444;">⚠️ Error: ${escapeHtml(msg)}</div>`;
+  div.innerHTML = `<div class="msg-bubble" style="border-color:#ef4444;color:#ef4444;">Error: ${escapeHtml(msg)}</div>`;
   messagesEl().appendChild(div);
   scrollBottom();
 }
@@ -206,7 +212,11 @@ async function loadSnapshot() {
       const cls = chg > 0 ? 'up' : chg < 0 ? 'down' : '';
       const sign = chg > 0 ? '+' : '';
       const chgStr = chg == null ? '' : ` (${sign}${chg}%)`;
-      html += `<div class="market-row"><span class="name">${name}</span><span class="price ${cls}">${price}${chgStr}</span></div>`;
+      html += `
+        <div class="market-row">
+          <span class="name">${name}</span>
+          <span class="price ${cls}">${price}${chgStr}</span>
+        </div>`;
     }
     el.innerHTML = html || 'No data available';
   } catch (e) {
@@ -228,6 +238,202 @@ async function loadTrades() {
   } catch (e) {
     el.textContent = 'Could not load trades.';
   }
+}
+
+async function loadChatHistory() {
+  try {
+    const resp = await fetch(`/api/chat/${SESSION_ID}/messages?limit=200`);
+    if (!resp.ok) throw new Error(`history ${resp.status}`);
+    const history = await resp.json();
+    if (!history.length) {
+      appendWelcomeMessage();
+      return;
+    }
+    for (const msg of history) {
+      appendChatMessage(msg.role, msg.content, msg.created_at);
+    }
+  } catch (e) {
+    appendWelcomeMessage();
+  }
+}
+
+// ── Workspace views ──────────────────────────────────────────────────────────
+
+function showView(view) {
+  const isChat = view === 'chat';
+  document.getElementById('messages').classList.toggle('hidden', !isChat);
+  document.getElementById('chat-input-area').classList.toggle('hidden', !isChat);
+  document.getElementById('portfolio-view').classList.toggle('hidden', view !== 'portfolio');
+  document.getElementById('nav-chat').classList.toggle('active', isChat);
+  document.getElementById('nav-portfolio').classList.toggle('active', view === 'portfolio');
+  if (view === 'portfolio') loadPortfolioDashboard();
+}
+
+// ── Portfolio dashboard ──────────────────────────────────────────────────────
+
+async function loadPortfolioDashboard() {
+  const updated = document.getElementById('portfolio-updated');
+  updated.textContent = 'Loading portfolio state…';
+  try {
+    const resp = await fetch('/api/portfolio/dashboard');
+    const data = await resp.json();
+    latestPortfolioDashboard = data;
+    renderPortfolioDashboard(data);
+  } catch (e) {
+    updated.textContent = 'Could not load portfolio dashboard.';
+    document.getElementById('allocation-list').innerHTML =
+      '<div class="empty-state">Portfolio service is unavailable.</div>';
+  }
+}
+
+function renderPortfolioDashboard(data) {
+  const normalized = normalizePortfolio(data.summary || {});
+  const total = normalized.holdings.reduce((sum, row) => sum + (row.value || 0), 0);
+  const errors = normalized.brokers.filter(b => b.error).length + (data.summary?.error ? 1 : 0);
+
+  document.getElementById('portfolio-total').textContent = formatCurrency(total);
+  document.getElementById('portfolio-holdings-count').textContent = normalized.holdings.length;
+  document.getElementById('portfolio-brokers-count').textContent = normalized.brokers.length;
+  document.getElementById('portfolio-errors-count').textContent = errors;
+  document.getElementById('portfolio-updated').textContent =
+    `Updated ${formatTime(data.timestamp || data.summary?.timestamp || new Date().toISOString())}`;
+
+  renderAllocation(normalized.holdings, total);
+  renderBrokers(normalized.brokers, data.summary);
+  renderHoldings(normalized.holdings);
+  renderPortfolioTrades(data.trades || []);
+}
+
+function normalizePortfolio(summary) {
+  const brokers = summary.brokers || {};
+  const holdings = [];
+  const brokerRows = [];
+
+  for (const [broker, payload] of Object.entries(brokers)) {
+    const error = payload?.error || null;
+    const sourceRows = Array.isArray(payload?.positions)
+      ? payload.positions
+      : Array.isArray(payload?.balances)
+        ? payload.balances
+        : [];
+
+    brokerRows.push({ broker, count: sourceRows.length, error });
+
+    for (const row of sourceRows) {
+      const quantity = numberOrNull(row.qty ?? row.quantity ?? row.position ?? row.available ?? row.free);
+      const locked = numberOrNull(row.locked);
+      const totalQuantity = quantity == null && locked != null ? locked : (quantity || 0) + (locked || 0);
+      const price = numberOrNull(row.current_price ?? row.price ?? row.avg_entry_price ?? row.avg_cost);
+      const value = numberOrNull(row.market_value ?? row.value_usd ?? row.usd_value)
+        ?? (price != null && totalQuantity ? price * totalQuantity : null);
+      holdings.push({
+        broker,
+        symbol: row.symbol || row.currency || row.asset || 'Unknown',
+        quantity: totalQuantity || quantity || 0,
+        price,
+        value,
+        pnl: numberOrNull(row.unrealized_pl ?? row.pnl_usd),
+        pnlPct: numberOrNull(row.unrealized_plpc),
+      });
+    }
+  }
+
+  if (!Object.keys(brokers).length && summary.error) {
+    brokerRows.push({ broker: summary.tool || 'portfolio', count: 0, error: summary.error });
+  }
+
+  holdings.sort((a, b) => (b.value || 0) - (a.value || 0));
+  return { brokers: brokerRows, holdings };
+}
+
+function renderAllocation(holdings, total) {
+  const el = document.getElementById('allocation-list');
+  const valued = holdings.filter(row => row.value && row.value > 0);
+  if (!valued.length || total <= 0) {
+    el.innerHTML = [
+      '<div class="empty-state">',
+      'No priced holdings available. Connect broker credentials or enable external API access ',
+      'to calculate allocation.',
+      '</div>',
+    ].join('');
+    return;
+  }
+  el.innerHTML = valued.slice(0, 12).map(row => {
+    const pct = (row.value / total) * 100;
+    return `
+      <div class="allocation-row">
+        <span>${escapeHtml(row.symbol)}</span>
+        <strong>${pct.toFixed(1)}%</strong>
+        <span class="allocation-bar"><span class="allocation-fill" style="width:${pct}%"></span></span>
+      </div>`;
+  }).join('');
+}
+
+function renderBrokers(brokers, summary) {
+  const el = document.getElementById('broker-list');
+  if (summary?.error && !brokers.length) {
+    el.innerHTML = `
+      <div class="broker-row">
+        <span>Portfolio</span>
+        <span class="status-error">${escapeHtml(summary.error)}</span>
+      </div>`;
+    return;
+  }
+  if (!brokers.length) {
+    el.innerHTML = '<div class="empty-state">No broker data returned.</div>';
+    return;
+  }
+  el.innerHTML = brokers.map(row => `
+    <div class="broker-row">
+      <span>${escapeHtml(row.broker)}</span>
+      <span class="${row.error ? 'status-error' : 'status-ok'}">
+        ${row.error ? escapeHtml(row.error) : `${row.count} holdings`}
+      </span>
+    </div>`).join('');
+}
+
+function renderHoldings(holdings) {
+  const el = document.getElementById('holdings-table');
+  if (!holdings.length) {
+    el.innerHTML = '<tr><td colspan="6" class="empty-state">No holdings available.</td></tr>';
+    return;
+  }
+  el.innerHTML = holdings.map(row => `
+    <tr>
+      <td>${escapeHtml(row.symbol)}</td>
+      <td>${escapeHtml(row.broker)}</td>
+      <td>${formatNumber(row.quantity)}</td>
+      <td>${formatCurrency(row.price)}</td>
+      <td>${formatCurrency(row.value)}</td>
+      <td class="${(row.pnl || 0) >= 0 ? 'up' : 'down'}">
+        ${formatCurrency(row.pnl)}${row.pnlPct != null ? ` (${(row.pnlPct * 100).toFixed(2)}%)` : ''}
+      </td>
+    </tr>`).join('');
+}
+
+function renderPortfolioTrades(trades) {
+  const el = document.getElementById('portfolio-trades-table');
+  if (!trades.length) {
+    el.innerHTML = '<div class="empty-state">No recent trades recorded.</div>';
+    return;
+  }
+  el.innerHTML = trades.map(t => `
+    <div class="compact-row">
+      <span>
+        <strong class="trade-side-${t.side}">${String(t.side || '').toUpperCase()}</strong>
+        ${escapeHtml(t.symbol)} x${formatNumber(t.quantity)}
+      </span>
+      <span>${escapeHtml(t.broker)} · ${escapeHtml(t.status)}</span>
+    </div>`).join('');
+}
+
+function askAboutPortfolio() {
+  showView('chat');
+  sendQuick(
+    'Analyse my current portfolio. Use the portfolio summary, recent trades, market data, ' +
+    'and news context. Explain allocation, concentration risk, P&L drivers, and practical ' +
+    'rebalancing ideas.'
+  );
 }
 
 // ── Agent health check ─────────────────────────────────────────────────────────
@@ -280,6 +486,30 @@ function setStatus(state) {
 function timeNow() {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
+function formatTime(value) {
+  try {
+    return new Date(value).toLocaleString([], {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+  } catch (_) {
+    return timeNow();
+  }
+}
+function numberOrNull(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+function formatNumber(value) {
+  const n = numberOrNull(value);
+  if (n == null) return 'N/A';
+  return n.toLocaleString(undefined, { maximumFractionDigits: 6 });
+}
+function formatCurrency(value) {
+  const n = numberOrNull(value);
+  if (n == null) return 'N/A';
+  return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+}
 function escapeHtml(str) {
   return String(str)
     .replaceAll('&', '&amp;').replaceAll('<', '&lt;')
@@ -327,30 +557,34 @@ function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('hidden');
 }
 
+function appendWelcomeMessage() {
+  const welcome = document.createElement('div');
+  welcome.className = 'msg assistant';
+  welcome.innerHTML = `
+    <div class="msg-bubble">
+      <strong>Welcome to Investment Assistant — Multi-Agent Edition</strong><br><br>
+      I coordinate specialised services running on AWS EKS:<br>
+      <strong>Market Data</strong> · <strong>News</strong> · <strong>Portfolio</strong> ·
+      <strong>Simulation</strong> · <strong>Scheduler</strong><br><br>
+      Ask about markets, your portfolio, recent news, simulations, or reports. This browser keeps
+      a session id in local storage, and the gateway reloads your persisted chat history when you return.
+    </div>
+    <div class="msg-time">${timeNow()}</div>`;
+  messagesEl().appendChild(welcome);
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
-globalThis.addEventListener('DOMContentLoaded', () => {
+globalThis.addEventListener('DOMContentLoaded', async () => {
   connect();
+  await loadChatHistory();
   loadSnapshot();
   loadTrades();
+  loadPortfolioDashboard();
   checkAgentHealth();
   setInterval(loadSnapshot, 5 * 60 * 1000);
   setInterval(loadTrades, 30 * 1000);
   setInterval(checkAgentHealth, 60 * 1000);
   setSendEnabled(true);
 
-  const welcome = document.createElement('div');
-  welcome.className = 'msg assistant';
-  welcome.innerHTML = `
-    <div class="msg-bubble">
-      <strong>Welcome to Investment Assistant — Multi-Agent Edition 📈</strong><br><br>
-      I coordinate a fleet of 6 specialised agents running on AWS EKS:<br>
-      <strong>Market Data</strong> · <strong>News</strong> · <strong>Portfolio</strong> ·
-      <strong>Simulation</strong> · <strong>Scheduler</strong><br><br>
-      I have access to real-time market data, sentiment analysis, and your brokerage accounts
-      (Alpaca, Interactive Brokers, Coinbase, Binance).<br><br>
-      Use the quick prompts on the left or ask me anything.
-    </div>
-    <div class="msg-time">${timeNow()}</div>`;
-  messagesEl().appendChild(welcome);
 });

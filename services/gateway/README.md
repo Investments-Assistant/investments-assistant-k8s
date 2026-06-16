@@ -1,8 +1,8 @@
 # Gateway Service
 
-Gateway is the only user-facing service. It serves the chat UI, exposes REST and
-WebSocket endpoints, talks to a self-hosted OpenAI-compatible LLM, and routes
-tool calls to the internal services.
+Gateway is the only externally user-facing service. It serves the main chat UI,
+dashboard workspaces, REST APIs, and WebSocket chat. It talks to a self-hosted
+OpenAI-compatible LLM and routes tool calls to the internal services.
 
 ## System Diagram
 
@@ -29,20 +29,23 @@ flowchart LR
 
 - Serve `/` and static frontend assets.
 - Accept WebSocket chat on `/ws/chat/{session_id}`.
-- Persist chat history in PostgreSQL.
+- Persist chat history in PostgreSQL and reload it when the browser returns with
+  the same session id.
 - Stream local LLM responses and handle tool use.
 - Route tool calls to the owning service over HTTP.
 - Maintain runtime trading mode in Redis.
-- Proxy report and trade list APIs for the UI.
+- Proxy portfolio dashboard, report, and trade list APIs for the UI.
 - Enforce IP allowlisting in production.
 
 ## Endpoints
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/` | Chat UI. |
+| `GET` | `/` | Main UI with chat and service dashboard workspaces. |
 | `GET` | `/api/health` | Gateway health and configured service URLs. |
 | `GET` | `/api/market/snapshot` | Calls `get_market_overview` through the router. |
+| `GET` | `/api/chat/{session_id}/messages` | Persisted chat history for the browser session. |
+| `GET` | `/api/portfolio/dashboard` | Portfolio summary plus recent trades for the dashboard. |
 | `GET` | `/api/reports` | Proxies report list from scheduler. |
 | `GET` | `/api/trades` | Proxies trade list from portfolio. |
 | `POST` | `/api/autonomous-scan` | Runs an autonomous scan or supplied report prompt. |
@@ -84,6 +87,10 @@ Gateway owns two database tables:
 
 - `chat_messages`: user and assistant messages by session.
 - `analyses`: structured analysis records.
+
+The browser stores a UUID session id in `localStorage`. Returning to `/` from the
+same browser reloads the matching rows from `chat_messages`; a different browser
+or cleared local storage starts a new chat session.
 
 ## Run Locally
 

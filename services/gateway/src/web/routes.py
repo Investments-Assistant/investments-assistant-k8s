@@ -145,6 +145,58 @@ async def list_trades(limit: int = 50) -> list[dict]:
     return []
 
 
+@router.get("/api/chat/{session_id}/messages", dependencies=[Depends(require_ip)])
+async def chat_history(session_id: str, limit: int = 200) -> list[dict]:
+    """Return persisted chat history for the browser session."""
+    from sqlalchemy import desc, select
+
+    from src.db.database import async_session
+    from src.db.models import ChatMessage
+
+    safe_limit = max(1, min(limit, 500))
+    async with async_session() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(ChatMessage)
+                    .where(ChatMessage.session_id == session_id)
+                    .order_by(desc(ChatMessage.created_at))
+                    .limit(safe_limit)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    return [
+        {
+            "id": row.id,
+            "role": row.role,
+            "content": row.content,
+            "created_at": row.created_at.isoformat(),
+        }
+        for row in reversed(rows)
+    ]
+
+
+@router.get("/api/portfolio/dashboard", dependencies=[Depends(require_ip)])
+async def portfolio_dashboard() -> dict:
+    """Portfolio dashboard payload: current broker summary plus recent trades."""
+    from src.agent.router import get_router
+
+    summary_str = await get_router().dispatch("get_portfolio_summary", {})
+    try:
+        summary = json.loads(summary_str)
+    except json.JSONDecodeError:
+        summary = {"error": "Portfolio summary returned non-JSON data.", "raw": summary_str}
+
+    return {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "summary": summary,
+        "trades": await list_trades(limit=20),
+    }
+
+
 @router.post("/api/autonomous-scan", dependencies=[Depends(require_ip)])
 async def trigger_autonomous_scan(request: Request) -> dict:
     """Trigger an autonomous market scan (called by the scheduler)."""
