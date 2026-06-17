@@ -32,6 +32,8 @@ flowchart LR
 - An optional DNS-validated ACM certificate for the public ALB.
 - Optional Cognito user-pool authentication with `viewer`, `investor`, and
   `admin` groups for gateway authorization.
+- An EKS access entry for the GitHub Actions deploy role created by
+  `core-infra`.
 - An AWS WAF WebACL that protects the public ALB with an IP allowlist.
 - IAM roles and policies for Kubernetes service accounts and External Secrets.
 - An AWS Secrets Manager secret named `investments/prod`; OpenTofu writes
@@ -55,6 +57,11 @@ avoid pinning a version that is not available in the selected region. See
 home VPN egress, usually `x.x.x.x/32`. The private VPN/LAN address is not useful
 for the public ALB allowlist.
 
+`enable_github_actions_deploy_access=true` creates EKS access for
+`investments-assistant-github-actions-deploy-role` by default. Override
+`github_actions_deploy_role_arn` only if core-infra creates the role under a
+different name or account.
+
 ## Main Outputs
 
 Outputs in `outputs.tf` expose the EKS endpoint/name/CA data, ECR repository
@@ -77,6 +84,7 @@ The stack is split by ownership instead of keeping every resource in
 - `registry.tf`: ECR repositories.
 - `edge.tf`: WAF, ACM, and Cognito edge/auth resources.
 - `secrets.tf`: Secrets Manager secret and IRSA/secrets module.
+- `access.tf`: EKS access entry for the GitHub Actions deploy role.
 
 ## Modules
 

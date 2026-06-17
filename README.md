@@ -193,10 +193,17 @@ The Makefile assumes AWS region `eu-south-2` by default. Keep OpenTofu, ECR,
 ACM, WAF, Kubernetes manifests, and GitHub Actions aligned to the same region.
 OpenTofu targets EKS Kubernetes `1.33` by default.
 
-GitHub Actions deployments use AWS OIDC. Configure `AWS_DEPLOY_ROLE_ARN` as a
-repository variable or secret before running `build-push.yml` or `deploy.yml`.
-If it is missing, the workflows fail before `aws-actions/configure-aws-credentials`
-with a direct configuration error.
+GitHub Actions uses AWS OIDC with separate roles created by `core-infra`:
+
+- `AWS_BUILD_ROLE_ARN` for `build-push.yml`.
+- `AWS_DEPLOY_ROLE_ARN` for `deploy.yml`.
+
+Configure them as repository variables or secrets before running the workflows.
+If either is missing, the relevant workflow fails before
+`aws-actions/configure-aws-credentials` with a direct configuration error. The
+k8s OpenTofu stack creates an EKS access entry for
+`investments-assistant-github-actions-deploy-role` so `kubectl apply` can use
+the deploy role.
 
 The self-hosted LLM deployment is scheduled onto a dedicated EKS node group by
 default. Keep `enable_llm_node_group=true` in OpenTofu unless you resize the

@@ -56,6 +56,12 @@ node_max_size      = 5
 node_desired_size  = 2
 k8s_version        = "1.33"
 
+# GitHub Actions deploy role is created by core-infra. The default role name
+# matches that stack's output, so override only if you change the role name.
+enable_github_actions_deploy_access = true
+github_actions_deploy_role_name     = "investments-assistant-github-actions-deploy-role"
+github_actions_deploy_role_arn      = null
+
 # Dedicated node group for the self-hosted Ollama LLM pod.
 enable_llm_node_group = true
 llm_node_instance_type = "t3.xlarge"

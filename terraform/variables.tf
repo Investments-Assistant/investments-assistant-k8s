@@ -185,3 +185,21 @@ variable "k8s_version" {
   type        = string
   default     = "1.33"
 }
+
+variable "enable_github_actions_deploy_access" {
+  description = "Create an EKS access entry for the GitHub Actions deploy role."
+  type        = bool
+  default     = true
+}
+
+variable "github_actions_deploy_role_name" {
+  description = "IAM role name used by GitHub Actions deploy workflow."
+  type        = string
+  default     = "investments-assistant-github-actions-deploy-role"
+}
+
+variable "github_actions_deploy_role_arn" {
+  description = "Optional explicit IAM role ARN used by GitHub Actions deploy workflow."
+  type        = string
+  default     = null
+}
