@@ -106,13 +106,13 @@ The source references are pinned to the `terraform-modules` `v1.1.0` release.
 ## Basic Usage
 
 ```bash
-cp terraform.tfvars.example terraform.tfvars
-tofu init
-tofu plan -out=tfplan
-tofu apply tfplan
+cp terraform.tfvars.example prod.tfvars
+cd ..
+make tf-apply TF_ENV=prod
 ```
 
-Do not commit `terraform.tfvars`, `tfplan`, `.terraform/`, or state files.
+Do not commit `*.tfvars`, `ttplan`, `ttplan.json`, `ttoutputs.json`,
+`.terraform/`, or state files.
 
 `app_secret_values` can be used for UI Basic Auth and optional secret settings
 such as broker or newsletter credentials:

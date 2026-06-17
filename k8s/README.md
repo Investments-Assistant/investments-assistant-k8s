@@ -83,7 +83,7 @@ contain sensitive values such as:
 - `UI_AUTH_PASSWORD`
 
 OpenTofu writes `POSTGRES_PASSWORD` from `db_password` in
-`terraform/terraform.tfvars`.
+`terraform/$(TF_ENV).tfvars`.
 
 In production, external browser/API traffic must pass the edge allowlist and the
 configured gateway auth mode:

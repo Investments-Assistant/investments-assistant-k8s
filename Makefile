@@ -1,7 +1,7 @@
 .PHONY: help dev-up dev-down dev-build dev-logs dev-ps \
         deploy-e2e kubeconfig k8s-render k8s-apply-rendered \
         k8s-wait-external-secrets k8s-wait-pvcs k8s-rollout-status llm-model alb-url route53-alias k8s-apply k8s-delete k8s-status \
-        tf-init tf-plan tf-apply tf-destroy \
+        tf-init tf-validate tf-plan tf-apply tf-destroy \
         ecr-login push lint test
 
 SHELL := /bin/bash
@@ -14,7 +14,12 @@ K8S_SERVICES := llm $(APP_SERVICES)
 K8S_NS       := investments
 K8S_MANIFEST_DIR ?= k8s
 K8S_RENDER_DIR ?= .rendered/k8s
-TF_WORKSPACE ?= prod
+ifdef TF_WORKSPACE
+TF_ENV ?= $(TF_WORKSPACE)
+else
+TF_ENV ?= prod
+endif
+TF_WORKSPACE ?= $(TF_ENV)
 CLUSTER_NAME ?= investments-assistant
 ACM_CERT_ARN ?=
 ROUTE53_ZONE_ID ?=
@@ -47,6 +52,7 @@ help:
 	@echo ""
 	@echo "OpenTofu (AWS):"
 	@echo "    make tf-init       tofu init"
+	@echo "    make tf-validate   tofu validate"
 	@echo "    make tf-plan       tofu plan"
 	@echo "    make tf-apply      tofu apply"
 	@echo "    make tf-destroy    tofu destroy"
@@ -90,7 +96,7 @@ deploy-e2e:
 	@echo "End-to-end deployment complete."
 
 kubeconfig:
-	@$(TOFU) -chdir=terraform workspace select -or-create "$(TF_WORKSPACE)" >/dev/null
+	@$(TOFU) -chdir=terraform workspace select -or-create "$(TF_ENV)" >/dev/null
 	@TF_OUTPUTS="$$($(TOFU) -chdir=terraform output -no-color -json 2>/dev/null || echo '{}')"; \
 	CLUSTER="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("cluster_name", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
 	if [ -z "$$CLUSTER" ]; then CLUSTER="$(CLUSTER_NAME)"; fi; \
@@ -102,7 +108,7 @@ k8s-render:
 	@rm -rf "$(K8S_RENDER_DIR)"
 	@mkdir -p "$(dir $(K8S_RENDER_DIR))"
 	@cp -R k8s "$(K8S_RENDER_DIR)"
-	@$(TOFU) -chdir=terraform workspace select -or-create "$(TF_WORKSPACE)" >/dev/null
+	@$(TOFU) -chdir=terraform workspace select -or-create "$(TF_ENV)" >/dev/null
 	@ACCOUNT="$$(aws sts get-caller-identity --query Account --output text)"; \
 	AWS_REGION="$(AWS_REGION)"; \
 	TF_OUTPUTS="$$($(TOFU) -chdir=terraform output -no-color -json 2>/dev/null || echo '{}')"; \
@@ -176,7 +182,7 @@ alb-url:
 	exit 1
 
 route53-alias:
-	@$(TOFU) -chdir=terraform workspace select -or-create "$(TF_WORKSPACE)" >/dev/null
+	@$(TOFU) -chdir=terraform workspace select -or-create "$(TF_ENV)" >/dev/null
 	@TF_OUTPUTS="$$($(TOFU) -chdir=terraform output -no-color -json 2>/dev/null || echo '{}')"; \
 	APP_DOMAIN="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("app_domain_name", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
 	ZONE_ID="$(ROUTE53_ZONE_ID)"; \
@@ -260,16 +266,20 @@ k8s-status:
 
 # ── OpenTofu ──────────────────────────────────────────────────────────────────
 tf-init:
-	cd terraform && $(TOFU) init -upgrade -reconfigure
+	cd terraform && $(TOFU) init -reconfigure -upgrade
+	cd terraform && $(TOFU) workspace select -or-create $(TF_ENV)
 
-tf-plan: tf-init
-	cd terraform && $(TOFU) workspace select -or-create $(TF_WORKSPACE)
-	cd terraform && $(TOFU) plan -out=tfplan
+tf-validate: tf-init
+	cd terraform && $(TOFU) validate -var-file=$(TF_ENV).tfvars
+
+tf-plan: tf-validate
+	cd terraform && $(TOFU) plan -var-file=$(TF_ENV).tfvars -out=ttplan -json-into=ttplan.json
 
 tf-apply: tf-plan
-	cd terraform && $(TOFU) apply -auto-approve tfplan
-tf-destroy:
-	cd terraform && $(TOFU) destroy -auto-approve
+	cd terraform && $(TOFU) apply -auto-approve -json-into=ttoutputs.json ttplan
+
+tf-destroy: tf-init
+	cd terraform && $(TOFU) destroy -auto-approve -var-file=$(TF_ENV).tfvars
 
 # ── ECR ───────────────────────────────────────────────────────────────────────
 ecr-login:

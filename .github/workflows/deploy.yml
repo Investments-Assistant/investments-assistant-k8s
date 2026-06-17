@@ -30,7 +30,7 @@ jobs:
       - name: Check AWS OIDC role configuration
         run: |
           if [ -z "$AWS_DEPLOY_ROLE_ARN" ]; then
-            echo "::error::Set AWS_DEPLOY_ROLE_ARN as a repository variable or secret."
+            echo "::error::Set AWS_DEPLOY_ROLE_ARN as a repository variable."
             exit 1
           fi
 

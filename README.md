@@ -129,7 +129,7 @@ make lint
 
 ## Cloud Deployment Flow
 
-1. Fill `terraform/terraform.tfvars` from `terraform/terraform.tfvars.example`.
+1. Fill `terraform/prod.tfvars` from `terraform/terraform.tfvars.example`.
 2. Set `allowed_ip_cidrs` to the public IPv4 AWS sees from your home VPN egress,
    for example `203.0.113.10/32`.
 3. Set `UI_AUTH_USERNAME` and `UI_AUTH_PASSWORD` in `app_secret_values` for the
@@ -149,7 +149,7 @@ make deploy-e2e
 images to ECR, renders Kubernetes manifests with OpenTofu outputs, applies
 them, updates the Route 53 ALIAS for `app_domain_name` when configured, and
 waits for rollouts. OpenTofu writes `db_password` from
-`terraform.tfvars` into the `investments/prod` Secrets Manager secret as
+`$(TF_ENV).tfvars` into the `investments/prod` Secrets Manager secret as
 `POSTGRES_PASSWORD`; the rendered ConfigMap uses OpenTofu outputs for the RDS
 host, port, database name, username, and application IP allowlist. Rendered
 manifests are written to `.rendered/k8s` and are not committed.
@@ -198,8 +198,10 @@ GitHub Actions uses AWS OIDC with separate roles created by `core-infra`:
 - `AWS_BUILD_ROLE_ARN` for `build-push.yml`.
 - `AWS_DEPLOY_ROLE_ARN` for `deploy.yml`.
 
-Configure them as repository variables or secrets before running the workflows.
-If either is missing, the relevant workflow fails before
+Configure them as repository variables before running the workflows. The
+values come from the `core-infra` AWS stack outputs
+`github_actions_build_role_arn` and `github_actions_deploy_role_arn`. If either
+role ARN is missing, the relevant workflow fails before
 `aws-actions/configure-aws-credentials` with a direct configuration error. The
 k8s OpenTofu stack creates an EKS access entry for
 `investments-assistant-github-actions-deploy-role` so `kubectl apply` can use
@@ -211,7 +213,7 @@ general worker nodes enough to run the Ollama pod.
 
 ## Important Notes
 
-- Do not commit `terraform.tfvars`, OpenTofu state, `.terraform/`, or plan
+- Do not commit `*.tfvars`, OpenTofu state, `.terraform/`, or plan
   files.
 - The gateway no longer uses a hosted LLM API. It calls the self-hosted
   OpenAI-compatible endpoint configured by `LLM_BASE_URL`.
