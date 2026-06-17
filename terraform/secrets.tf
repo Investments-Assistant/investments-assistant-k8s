@@ -1,5 +1,5 @@
 module "secrets" {
-  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//secrets?ref=v1.1.0"
+  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//secrets?ref=v1.3.0"
 
   cluster_name               = var.cluster_name
   account_id                 = local.account_id

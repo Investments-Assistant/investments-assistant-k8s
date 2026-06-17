@@ -1,10 +1,10 @@
 module "waf" {
-  source           = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//waf?ref=v1.1.0"
+  source           = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//waf?ref=v1.3.0"
   allowed_ip_cidrs = var.allowed_ip_cidrs
 }
 
 module "acm" {
-  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//acm?ref=v1.1.0"
+  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//acm?ref=v1.3.0"
 
   domain_name               = var.app_domain_name
   route53_zone_id           = var.app_route53_zone_id
@@ -30,7 +30,7 @@ resource "terraform_data" "cognito_https_guard" {
 
 module "cognito" {
   count      = var.enable_cognito_auth ? 1 : 0
-  source     = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//cognito?ref=v1.1.0"
+  source     = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//cognito?ref=v1.3.0"
   depends_on = [terraform_data.cognito_https_guard]
 
   cluster_name  = var.cluster_name
