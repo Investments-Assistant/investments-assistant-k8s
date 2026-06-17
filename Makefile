@@ -1,7 +1,7 @@
 .PHONY: help dev-up dev-down dev-build dev-logs dev-ps \
         deploy-e2e kubeconfig k8s-render k8s-apply-rendered \
         helm-deps helm-apply helm-delete helm-status \
-        k8s-wait-external-secrets k8s-wait-pvcs k8s-rollout-status llm-model alb-url route53-alias k8s-apply k8s-delete k8s-status \
+        k8s-wait-external-secrets k8s-wait-pvcs k8s-restart-apps k8s-rollout-status llm-model alb-url route53-alias k8s-apply k8s-delete k8s-status \
         tf-init tf-validate tf-plan tf-apply tf-destroy \
         ecr-login push lint test
 
@@ -93,6 +93,7 @@ deploy-e2e:
 	@$(MAKE) k8s-render
 	@$(MAKE) push
 	@$(MAKE) k8s-apply K8S_MANIFEST_DIR=$(K8S_RENDER_DIR)
+	@$(MAKE) k8s-restart-apps
 	@$(MAKE) k8s-rollout-status
 	@$(MAKE) alb-url
 	@$(MAKE) route53-alias
@@ -224,6 +225,12 @@ helm-status:
 	$(HELM) status aws-efs-csi-driver --namespace kube-system
 	$(HELM) status aws-load-balancer-controller --namespace kube-system
 	$(HELM) status external-secrets --namespace external-secrets
+
+k8s-restart-apps:
+	@for svc in $(APP_SERVICES); do \
+	  echo "▶ Restarting $$svc to pull latest image and config"; \
+	  kubectl -n $(K8S_NS) rollout restart deployment/$$svc; \
+	done
 
 k8s-rollout-status:
 	@for svc in $(K8S_SERVICES); do \

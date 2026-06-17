@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import UTC, datetime
 import uuid
-from sqlalchemy import JSON, DateTime, Float, Index, String, Text, func
+from sqlalchemy import JSON, DateTime, Float, Index, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 from src.db.database import Base
 
@@ -15,13 +15,11 @@ class NewsArticle(Base):
     __table_args__ = (
         Index(
             "ix_news_articles_fts",
-            func.to_tsvector(
-                "english",
-                func.coalesce(func.cast("title", Text), "")
-                + " "
-                + func.coalesce(func.cast("summary", Text), "")
-                + " "
-                + func.coalesce(func.cast("content", Text), ""),
+            text(
+                "to_tsvector('english', "
+                "coalesce(title, '') || ' ' || "
+                "coalesce(summary, '') || ' ' || "
+                "coalesce(content, ''))"
             ),
             postgresql_using="gin",
         ),

@@ -18,5 +18,7 @@ class Base(DeclarativeBase):
 
 
 async def create_all_tables() -> None:
+    from src.db import models  # noqa: F401
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
