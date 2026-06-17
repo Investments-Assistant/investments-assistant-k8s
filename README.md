@@ -129,7 +129,7 @@ make lint
 
 ## Cloud Deployment Flow
 
-1. Fill `terraform/prod.tfvars` from `terraform/terraform.tfvars.example`.
+1. Fill `terraform/prod.tfvars` from `terraform/env.tfvars.example`.
 2. Set `allowed_ip_cidrs` to the public IPv4 AWS sees from your home VPN egress,
    for example `203.0.113.10/32`.
 3. Set `UI_AUTH_USERNAME` and `UI_AUTH_PASSWORD` in `app_secret_values` for the

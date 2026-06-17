@@ -51,7 +51,7 @@ certificate. Set `enable_cognito_auth=true` when you want ALB/Cognito login and
 group-based gateway permissions; this requires the HTTPS domain path. The Aurora
 engine version defaults to AWS regional selection to
 avoid pinning a version that is not available in the selected region. See
-`terraform.tfvars.example` for the expected shape.
+`env.tfvars.example` for the expected shape.
 
 `allowed_ip_cidrs` should contain the public IPv4 CIDR that AWS sees from your
 home VPN egress, usually `x.x.x.x/32`. The private VPN/LAN address is not useful
@@ -106,7 +106,7 @@ The source references are pinned to the `terraform-modules` `v1.1.0` release.
 ## Basic Usage
 
 ```bash
-cp terraform.tfvars.example prod.tfvars
+cp env.tfvars.example prod.tfvars
 cd ..
 make tf-apply TF_ENV=prod
 ```
