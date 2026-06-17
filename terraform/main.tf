@@ -2,13 +2,20 @@ data "aws_caller_identity" "current" {}
 data "aws_availability_zones" "available" { state = "available" }
 
 locals {
-  account_id = data.aws_caller_identity.current.account_id
-  azs        = slice(data.aws_availability_zones.available.names, 0, 3)
+  account_id         = data.aws_caller_identity.current.account_id
+  azs                = slice(data.aws_availability_zones.available.names, 0, 3)
+  app_domain_enabled = var.app_domain_name != null && trimspace(var.app_domain_name) != ""
+  cognito_callback_url = local.app_domain_enabled ? [
+    "https://${trimspace(var.app_domain_name)}/oauth2/idpresponse"
+  ] : []
+  cognito_logout_url = local.app_domain_enabled ? [
+    "https://${trimspace(var.app_domain_name)}/"
+  ] : []
 }
 
 # ── VPC ──────────────────────────────────────────────────────────────────────
 module "vpc" {
-  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//vpc?ref=v1.0.0"
+  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//vpc?ref=v1.1.0"
 
   cluster_name = var.cluster_name
   azs          = local.azs
@@ -16,7 +23,7 @@ module "vpc" {
 
 # ── EKS ──────────────────────────────────────────────────────────────────────
 module "eks" {
-  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//eks?ref=v1.0.0"
+  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//eks?ref=v1.1.0"
 
   cluster_name       = var.cluster_name
   k8s_version        = var.k8s_version
@@ -39,7 +46,7 @@ module "eks" {
 
 # ── RDS Aurora PostgreSQL Serverless v2 ──────────────────────────────────────
 module "rds" {
-  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//rds?ref=v1.0.0"
+  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//rds?ref=v1.1.0"
 
   cluster_name       = var.cluster_name
   vpc_id             = module.vpc.vpc_id
@@ -55,7 +62,7 @@ module "rds" {
 
 # ── ElastiCache Redis ─────────────────────────────────────────────────────────
 module "elasticache" {
-  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//elasticache?ref=v1.0.0"
+  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//elasticache?ref=v1.1.0"
 
   cluster_name       = var.cluster_name
   vpc_id             = module.vpc.vpc_id
@@ -68,19 +75,19 @@ module "elasticache" {
 
 # ── ECR Repositories ─────────────────────────────────────────────────────────
 module "ecr" {
-  source        = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//ecr?ref=v1.0.0"
+  source        = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//ecr?ref=v1.1.0"
   service_names = ["gateway", "market-data", "news", "portfolio", "simulation", "scheduler", "forex"]
 }
 
 # ── WAF WebACL (IP allowlist for ALB) ────────────────────────────────────────
 module "waf" {
-  source           = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//waf?ref=v1.0.0"
+  source           = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//waf?ref=v1.1.0"
   allowed_ip_cidrs = var.allowed_ip_cidrs
 }
 
 # ── ACM certificate for ALB HTTPS ────────────────────────────────────────────
 module "acm" {
-  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//acm?ref=v1.0.0"
+  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//acm?ref=v1.1.0"
 
   domain_name               = var.app_domain_name
   route53_zone_id           = var.app_route53_zone_id
@@ -91,9 +98,35 @@ module "acm" {
   }
 }
 
+# ── Cognito users and groups for ALB authentication ──────────────────────────
+resource "terraform_data" "cognito_https_guard" {
+  count = var.enable_cognito_auth ? 1 : 0
+
+  input = var.app_domain_name
+
+  lifecycle {
+    precondition {
+      condition     = local.app_domain_enabled
+      error_message = "enable_cognito_auth requires app_domain_name so ALB authentication can run on HTTPS."
+    }
+  }
+}
+
+module "cognito" {
+  count      = var.enable_cognito_auth ? 1 : 0
+  source     = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//cognito?ref=v1.1.0"
+  depends_on = [terraform_data.cognito_https_guard]
+
+  cluster_name  = var.cluster_name
+  domain_prefix = var.cognito_domain_prefix
+  callback_urls = local.cognito_callback_url
+  logout_urls   = local.cognito_logout_url
+  groups        = var.cognito_user_groups
+}
+
 # ── Secrets Manager + IRSA ───────────────────────────────────────────────────
 module "secrets" {
-  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//secrets?ref=v1.0.0"
+  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//secrets?ref=v1.1.0"
 
   cluster_name               = var.cluster_name
   account_id                 = local.account_id

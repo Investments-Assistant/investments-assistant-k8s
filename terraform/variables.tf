@@ -17,7 +17,7 @@ variable "environment" {
 }
 
 variable "allowed_ip_cidrs" {
-  description = "CIDR blocks allowed to access the ALB (your home IP/32)"
+  description = "Public CIDR blocks allowed to access the ALB, usually your VPN egress IPv4 as x.x.x.x/32"
   type        = list(string)
 }
 
@@ -96,6 +96,40 @@ variable "app_certificate_subject_alternative_names" {
   description = "Optional additional DNS names for the ALB HTTPS certificate"
   type        = list(string)
   default     = []
+}
+
+variable "enable_cognito_auth" {
+  description = "Enable Cognito/ALB authentication for the public gateway. Requires app_domain_name and HTTPS."
+  type        = bool
+  default     = false
+}
+
+variable "cognito_domain_prefix" {
+  description = "Optional Cognito hosted UI domain prefix. Must be unique in the AWS region."
+  type        = string
+  default     = null
+}
+
+variable "cognito_user_groups" {
+  description = "Cognito user groups mapped by the gateway to viewer, investor, and admin roles."
+  type = map(object({
+    description = string
+    precedence  = number
+  }))
+  default = {
+    viewer = {
+      description = "Can chat with the assistant about news only."
+      precedence  = 30
+    }
+    investor = {
+      description = "Can use market data, news, simulations, and reports, but not portfolio tools."
+      precedence  = 20
+    }
+    admin = {
+      description = "Can use every assistant service and administrative trading controls."
+      precedence  = 10
+    }
+  }
 }
 
 variable "node_instance_type" {

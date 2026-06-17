@@ -30,6 +30,8 @@ flowchart LR
 - ElastiCache Redis for shared runtime state such as trading mode.
 - One ECR repository per service image.
 - An optional DNS-validated ACM certificate for the public ALB.
+- Optional Cognito user-pool authentication with `viewer`, `investor`, and
+  `admin` groups for gateway authorization.
 - An AWS WAF WebACL that protects the public ALB with an IP allowlist.
 - IAM roles and policies for Kubernetes service accounts and External Secrets.
 - An AWS Secrets Manager secret named `investments/prod`; OpenTofu writes
@@ -43,17 +45,24 @@ Inputs are declared in `variables.tf`. Required values are `allowed_ip_cidrs` an
 `aurora_postgresql_engine_version`, and LLM node group sizing settings are
 optional. Set `app_domain_name` and `app_route53_zone_id` or
 `app_route53_zone_name` when you want OpenTofu to create the ALB HTTPS
-certificate. The Aurora engine version defaults to AWS regional selection to
+certificate. Set `enable_cognito_auth=true` when you want ALB/Cognito login and
+group-based gateway permissions; this requires the HTTPS domain path. The Aurora
+engine version defaults to AWS regional selection to
 avoid pinning a version that is not available in the selected region. See
 `terraform.tfvars.example` for the expected shape.
+
+`allowed_ip_cidrs` should contain the public IPv4 CIDR that AWS sees from your
+home VPN egress, usually `x.x.x.x/32`. The private VPN/LAN address is not useful
+for the public ALB allowlist.
 
 ## Main Outputs
 
 Outputs in `outputs.tf` expose the EKS endpoint/name/CA data, ECR repository
 URLs, RDS endpoint, RDS port, RDS database name, RDS master username, Redis
 endpoint, WAF WebACL ARN, IRSA role ARN, EFS ID, and VPC ID. When enabled, the
-ACM certificate ARN is also exposed for the ALB Ingress. The Makefile renders
-these values into Kubernetes manifests before deploying workloads.
+ACM certificate ARN and Cognito user-pool outputs are also exposed for the ALB
+Ingress and gateway ConfigMap. The Makefile renders these values into
+Kubernetes manifests before deploying workloads.
 
 ## Modules
 
@@ -66,6 +75,7 @@ The stack consumes these module directories from
 - `elasticache`: Redis.
 - `ecr`: service image repositories.
 - `acm`: ALB HTTPS certificate and DNS validation.
+- `cognito`: user pool, ALB app client, hosted UI domain, and role groups.
 - `waf`: ALB-facing WAF allowlist.
 - `secrets`: IAM roles, AWS Secrets Manager permissions, and ALB log bucket.
 
@@ -84,9 +94,43 @@ tofu apply tfplan
 
 Do not commit `terraform.tfvars`, `tfplan`, `.terraform/`, or state files.
 
-`app_secret_values` can be used for optional secret settings such as broker or
-newsletter credentials. Do not include `POSTGRES_PASSWORD` there; it is derived
-from `db_password`.
+`app_secret_values` can be used for UI Basic Auth and optional secret settings
+such as broker or newsletter credentials:
+
+```hcl
+app_secret_values = {
+  UI_AUTH_USERNAME = "investments"
+  UI_AUTH_PASSWORD = "CHANGE_ME_STRONG_UI_PASSWORD"
+}
+```
+
+Do not include `POSTGRES_PASSWORD` there; it is derived from `db_password`.
+
+## Cognito Role Groups
+
+Use Cognito user-pool groups for application users, not IAM groups. IAM groups
+grant AWS API permissions to AWS principals; the gateway needs authenticated
+application-user claims. Cognito emits group membership in the token, and the
+gateway maps those groups to runtime permissions:
+
+- `viewer`: chat plus news tools.
+- `investor`: market data, forex, news, simulations, and reports, but no
+  portfolio or trading tools.
+- `admin`: all services and administrative controls.
+
+After `tofu apply`, create Cognito users and assign them to groups:
+
+```bash
+aws cognito-idp admin-create-user \
+  --user-pool-id "$(tofu output -raw cognito_user_pool_id)" \
+  --username user@example.com \
+  --user-attributes Name=email,Value=user@example.com Name=email_verified,Value=true
+
+aws cognito-idp admin-add-user-to-group \
+  --user-pool-id "$(tofu output -raw cognito_user_pool_id)" \
+  --username user@example.com \
+  --group-name viewer
+```
 
 ## Kubernetes Version
 

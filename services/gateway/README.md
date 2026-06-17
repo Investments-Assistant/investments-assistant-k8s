@@ -35,7 +35,8 @@ flowchart LR
 - Route tool calls to the owning service over HTTP.
 - Maintain runtime trading mode in Redis.
 - Proxy portfolio dashboard, report, and trade list APIs for the UI.
-- Enforce IP allowlisting in production.
+- Enforce IP allowlisting, authentication, and role-based permissions for
+  external production traffic.
 
 ## Endpoints
 
@@ -76,6 +77,11 @@ Important environment variables:
 | `LLM_API_KEY` | Optional key if the self-hosted gateway requires one. Blank by default. |
 | `LLM_MODEL_NAME` | Local model name. |
 | `ALLOWED_IPS` | Comma-separated CIDRs allowed to use UI/API in production. |
+| `TRUSTED_INTERNAL_CIDRS` | Cluster/internal CIDRs that may call gateway without browser Basic Auth. |
+| `AUTH_MODE` | `basic`, `cognito`, or `hybrid`. Cognito mode uses ALB/Cognito headers. |
+| `UI_AUTH_USERNAME`, `UI_AUTH_PASSWORD`, `BASIC_AUTH_ROLE` | Basic Auth fallback credentials and role. |
+| `COGNITO_USER_POOL_ID`, `COGNITO_APP_CLIENT_ID` | Cognito token validation settings. |
+| `AUTH_VIEWER_GROUPS`, `AUTH_INVESTOR_GROUPS`, `AUTH_ADMIN_GROUPS` | Comma-separated Cognito group names mapped to gateway roles. |
 | `POSTGRES_*` | PostgreSQL connection settings. |
 | `REDIS_URL` | Redis URL for shared trading mode. |
 | `MARKET_DATA_URL`, `FOREX_URL`, `NEWS_URL`, `PORTFOLIO_URL`, `SIMULATION_URL`, `SCHEDULER_URL` | Internal service URLs. |
@@ -91,6 +97,31 @@ Gateway owns two database tables:
 The browser stores a UUID session id in `localStorage`. Returning to `/` from the
 same browser reloads the matching rows from `chat_messages`; a different browser
 or cleared local storage starts a new chat session.
+
+## Production Access
+
+In AWS, users chat with the assistant through the gateway Ingress, not a local
+port. Use `make alb-url` from the repository root after deployment to print the
+AWS-managed ALB hostname. The root page serves the chat workspace and service
+dashboards; the WebSocket endpoint streams assistant responses for the stored
+browser session.
+
+External requests must come from an `ALLOWED_IPS` CIDR and authenticate through
+the configured `AUTH_MODE`. With Cognito enabled, ALB authenticates the browser
+and forwards Cognito tokens to the gateway. The gateway validates the token,
+reads the `cognito:groups` claim, maps the user to `viewer`, `investor`, or
+`admin`, and applies the same authorization to REST endpoints, WebSocket chat,
+and assistant tool calls.
+
+Role permissions:
+
+- `viewer`: chat plus news tools only.
+- `investor`: market data, forex, news, simulations, and reports; no portfolio
+  or trading tools.
+- `admin`: all services, portfolio, trading controls, and autonomous scans.
+
+Cluster-internal service calls, such as scheduler-triggered autonomous scans,
+are allowed from `TRUSTED_INTERNAL_CIDRS` as an internal admin context.
 
 ## Run Locally
 

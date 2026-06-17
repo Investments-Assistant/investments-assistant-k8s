@@ -2,8 +2,9 @@
 aws_region  = "eu-south-2"
 environment = "prod"
 
-# Your home IP (the only one that can reach the UI)
-allowed_ip_cidrs = ["YOUR_HOME_IP/32"]
+# Public IPv4 that AWS sees from your home VPN egress. Do not use the private
+# LAN/VPN address here; use the public egress address with a /32 suffix.
+allowed_ip_cidrs = ["YOUR_VPN_PUBLIC_IPV4/32"]
 
 # Optional ALB HTTPS certificate. If set, OpenTofu creates and validates an ACM
 # certificate with Route 53 DNS validation.
@@ -12,6 +13,25 @@ app_route53_zone_id                       = null
 app_route53_zone_name                     = null
 app_certificate_subject_alternative_names = []
 
+# Optional Cognito/ALB authentication with role groups. This requires
+# app_domain_name plus an ACM certificate because ALB auth only works on HTTPS.
+enable_cognito_auth  = false
+cognito_domain_prefix = null
+cognito_user_groups = {
+  viewer = {
+    description = "Can chat with the assistant about news only."
+    precedence  = 30
+  }
+  investor = {
+    description = "Can use market data, news, simulations, and reports, but not portfolio tools."
+    precedence  = 20
+  }
+  admin = {
+    description = "Can use every assistant service and administrative trading controls."
+    precedence  = 10
+  }
+}
+
 # RDS
 db_name                            = "investments"
 db_username                        = "investments"
@@ -19,6 +39,9 @@ db_password                        = "CHANGE_ME_STRONG_PASSWORD"
 aurora_postgresql_engine_version   = null
 # Optional extra secrets, also written to investments/prod:
 app_secret_values = {
+  # Basic Auth fallback for enable_cognito_auth=false.
+  UI_AUTH_USERNAME = "investments"
+  UI_AUTH_PASSWORD = "CHANGE_ME_STRONG_UI_PASSWORD"
   # REDIS_URL = "redis://:TOKEN@HOST:6379/0"
 }
 

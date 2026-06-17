@@ -25,8 +25,20 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
 
-    # ── Security — IP whitelist ────────────────────────────────────────────────
+    # ── Security ───────────────────────────────────────────────────────────────
+    aws_region: str = "eu-south-2"
     allowed_ips: str = "127.0.0.1/32"  # override via ALLOWED_IPS env var
+    trusted_internal_cidrs: str = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,::1/128"
+    auth_mode: Literal["basic", "cognito", "hybrid"] = "basic"
+    ui_auth_username: str = "investments"
+    ui_auth_password: str = ""
+    basic_auth_role: Literal["viewer", "investor", "admin"] = "admin"
+    cognito_user_pool_id: str = ""
+    cognito_app_client_id: str = ""
+    cognito_groups_claim: str = "cognito:groups"
+    auth_viewer_groups: str = "viewer,viewers"
+    auth_investor_groups: str = "investor,investors"
+    auth_admin_groups: str = "admin,admins"
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -48,6 +60,29 @@ class Settings(BaseSettings):
         except ValueError:
             return False
         return any(addr in net for net in self.allowed_networks)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def trusted_internal_networks(
+        self,
+    ) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+        networks = []
+        for entry in self.trusted_internal_cidrs.split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            try:
+                networks.append(ipaddress.ip_network(entry, strict=False))
+            except ValueError:
+                pass
+        return networks
+
+    def is_internal_ip(self, ip: str) -> bool:
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return False
+        return any(addr in net for net in self.trusted_internal_networks)
 
     # ── Self-hosted LLM ───────────────────────────────────────────────────────
     llm_base_url: str = "http://llm:11434/v1"

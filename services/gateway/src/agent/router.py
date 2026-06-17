@@ -11,6 +11,7 @@ import logging
 
 import aiohttp
 
+from src.auth import AuthContext, can_call_tool
 from src.config import settings
 
 logger = logging.getLogger(__name__)
@@ -66,8 +67,19 @@ class AgentRouter:
             await self._session.close()
             self._session = None
 
-    async def dispatch(self, tool_name: str, tool_input: dict) -> str:
+    async def dispatch(
+        self,
+        tool_name: str,
+        tool_input: dict,
+        auth_context: AuthContext | None = None,
+    ) -> str:
         """Call the owning service and return a JSON string result."""
+        if not can_call_tool(auth_context, tool_name):
+            role = auth_context.role if auth_context else "unknown"
+            return json.dumps(
+                {"error": (f"Permission denied: role '{role}' cannot use tool '{tool_name}'.")}
+            )
+
         if tool_name in _LOCAL_TOOLS:
             return await self._handle_local(tool_name, tool_input)
 

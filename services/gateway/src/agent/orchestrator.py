@@ -9,6 +9,7 @@ from typing import Any
 from src.agent.llm_client import LocalLLMClient
 from src.agent.prompts import SYSTEM_PROMPT
 from src.agent.router import get_router
+from src.auth import AuthContext, authorization_prompt
 from src.config import settings
 
 logger = logging.getLogger(__name__)
@@ -22,25 +23,30 @@ class Orchestrator:
         self.history: list[dict[str, Any]] = []
         self._client = LocalLLMClient(router=get_router())
 
-    def _system(self) -> str:
+    def _system(self, auth_context: AuthContext | None) -> str:
         # Read trading_mode at call time so it reflects any runtime changes
         return SYSTEM_PROMPT.format(
             trading_mode=settings.trading_mode,
             auto_max_trade_usd=settings.auto_max_trade_usd,
             auto_daily_loss_limit_usd=settings.auto_daily_loss_limit_usd,
-        )
+        ) + authorization_prompt(auth_context)
 
     def _trimmed(self) -> list[dict]:
         return self.history[-settings.agent_max_context_messages :]
 
-    async def chat(self, user_message: str) -> AsyncGenerator[dict, None]:
+    async def chat(
+        self,
+        user_message: str,
+        auth_context: AuthContext | None = None,
+    ) -> AsyncGenerator[dict, None]:
         """Stream agent response events for a user message."""
         self.history.append({"role": "user", "content": user_message})
         full_text = ""
 
         async for event in self._client.stream_response(
             messages=self._trimmed(),
-            system=self._system(),
+            system=self._system(auth_context),
+            auth_context=auth_context,
         ):
             if event["type"] == "text_delta":
                 full_text += event["text"]

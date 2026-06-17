@@ -47,9 +47,9 @@ flowchart LR
 | `configmap.yaml` | Non-secret runtime settings and internal service URLs. |
 | `serviceaccount.yaml` | `investments-sa` with an IRSA role annotation for AWS access. |
 | `external-secrets.yaml` | Pulls `investments/prod` from AWS Secrets Manager into `investments-secrets` using External Secrets `v1` CRDs. |
-| `reports-pvc.yaml` | Shared ReadWriteMany PVC backed by the Terraform-created EFS StorageClass `efs-sc`. |
+| `reports-pvc.yaml` | Shared ReadWriteMany PVC backed by the OpenTofu-created EFS StorageClass `efs-sc`. |
 | `ingress.yaml` | Internet-facing ALB Ingress that sends all traffic to `gateway:8000`. |
-| `llm/*` | Self-hosted Ollama-compatible LLM Deployment, ClusterIP Service, and model PVC. The Deployment targets the Terraform-created `workload=llm` node group. |
+| `llm/*` | Self-hosted Ollama-compatible LLM Deployment, ClusterIP Service, and model PVC. The Deployment targets the OpenTofu-created `workload=llm` node group. |
 | `<service>/deployment.yaml` | Service-specific Deployment. |
 | `<service>/service.yaml` | Service-specific ClusterIP Service. |
 | `gateway/hpa.yaml` | HorizontalPodAutoscaler for the gateway. |
@@ -73,18 +73,34 @@ flowchart LR
 defaults, report paths, scheduler intervals, and `POSTGRES_SSL_MODE=require`
 for encrypted Aurora PostgreSQL connections. `make k8s-render` replaces the
 gateway `ALLOWED_IPS` value and the RDS host, port, database name, and username
-from Terraform outputs.
+from OpenTofu outputs.
 
 `external-secrets.yaml` expects AWS Secrets Manager secret `investments/prod` to
 contain sensitive values such as:
 
 - `POSTGRES_PASSWORD`
+- `UI_AUTH_USERNAME`
+- `UI_AUTH_PASSWORD`
 
-Terraform writes `POSTGRES_PASSWORD` from `db_password` in
+OpenTofu writes `POSTGRES_PASSWORD` from `db_password` in
 `terraform/terraform.tfvars`.
 
+In production, external browser/API traffic must pass the edge allowlist and the
+configured gateway auth mode:
+
+1. AWS WAF allows only the CIDRs from `allowed_ip_cidrs`.
+2. With `AUTH_MODE=basic`, gateway Basic Auth validates `UI_AUTH_USERNAME` and
+   `UI_AUTH_PASSWORD`.
+3. With `AUTH_MODE=cognito`, ALB authenticates users with Cognito and gateway
+   maps Cognito groups to `viewer`, `investor`, or `admin`.
+
+Use the public IPv4 that AWS sees from your home VPN egress, for example
+`203.0.113.10/32`. Do not use a private LAN or VPN address such as
+`192.168.x.x`, `10.x.x.x`, or `172.16.x.x`; AWS WAF cannot see those as the
+public client source.
+
 If `EXTERNAL_API_ACCESS=true`, it can also contain optional external integration
-credentials through Terraform `app_secret_values`, such as:
+credentials through OpenTofu `app_secret_values`, such as:
 
 - `ALPACA_API_KEY` and `ALPACA_SECRET_KEY`
 - `BINANCE_API_KEY` and `BINANCE_SECRET_KEY`
@@ -97,26 +113,63 @@ Before deploying to a real cluster, replace these placeholders:
 
 - `ACCOUNT` in all Deployment image names.
 - `REPLACE_WITH_ALLOWED_IPS` in `configmap.yaml`; use the `allowed_ip_cidrs`
-  Terraform output rendered as a comma-separated list.
+  OpenTofu output rendered as a comma-separated list.
+- `REPLACE_WITH_AUTH_MODE` in `configmap.yaml`; use `basic` or `cognito` from
+  the OpenTofu `auth_mode` output.
+- `REPLACE_WITH_AWS_REGION` in `configmap.yaml`; use the deployment AWS region.
+- `REPLACE_WITH_COGNITO_USER_POOL_ID` and
+  `REPLACE_WITH_COGNITO_APP_CLIENT_ID` in `configmap.yaml`; use OpenTofu
+  Cognito outputs when Cognito auth is enabled. They render empty in Basic Auth
+  mode.
 - `REPLACE_WITH_RDS_ENDPOINT` in `configmap.yaml`; use the `rds_endpoint`
-  Terraform output.
-- `REPLACE_WITH_RDS_PORT` in `configmap.yaml`; use the `rds_port` Terraform
+  OpenTofu output.
+- `REPLACE_WITH_RDS_PORT` in `configmap.yaml`; use the `rds_port` OpenTofu
   output.
 - `REPLACE_WITH_RDS_DATABASE_NAME` in `configmap.yaml`; use the
-  `rds_database_name` Terraform output.
+  `rds_database_name` OpenTofu output.
 - `REPLACE_WITH_RDS_MASTER_USERNAME` in `configmap.yaml`; use the
-  `rds_master_username` Terraform output.
+  `rds_master_username` OpenTofu output.
 - `REPLACE_WITH_REDIS_ENDPOINT` in `configmap.yaml`; use the `redis_endpoint`
-  Terraform output when Redis AUTH is disabled. If Redis AUTH is enabled, put a
-  full authenticated `REDIS_URL` in Terraform `app_secret_values` instead.
+  OpenTofu output when Redis AUTH is disabled. If Redis AUTH is enabled, put a
+  full authenticated `REDIS_URL` in OpenTofu `app_secret_values` instead.
 - ACM certificate ARN in `ingress.yaml`; use the `acm_certificate_arn`
-  Terraform output or pass `ACM_CERT_ARN` to the Makefile as an override. If no
+  OpenTofu output or pass `ACM_CERT_ARN` to the Makefile as an override. If no
   certificate is available, the Makefile renders an HTTP-only ALB ingress.
-- WAF WebACL ARN in `ingress.yaml`; use the `waf_webacl_arn` Terraform output.
-- IRSA role ARN in `serviceaccount.yaml`; use the `irsa_role_arn` Terraform output.
+- Cognito ALB annotations in `ingress.yaml`; `make k8s-render` keeps and fills
+  them only when `auth_mode=cognito`.
+- WAF WebACL ARN in `ingress.yaml`; use the `waf_webacl_arn` OpenTofu output.
+- IRSA role ARN in `serviceaccount.yaml`; use the `irsa_role_arn` OpenTofu output.
 
 The manifests default to `eu-south-2`. Keep the region consistent with
-Terraform, ECR, ACM, WAF, and GitHub Actions.
+OpenTofu, ECR, ACM, WAF, and GitHub Actions.
+
+## Public Access URL
+
+The deployed UI is not served from `localhost`. It is exposed through the AWS
+Load Balancer Controller Ingress. If you do not configure `app_domain_name` and
+ACM, the ingress is rendered HTTP-only and you use the AWS-managed ALB hostname:
+
+```bash
+make alb-url
+```
+
+That prints a URL like `http://<alb-name>.<region>.elb.amazonaws.com`. No
+Route 53 record is required for that built-in hostname.
+
+HTTP Basic Auth over the built-in ALB hostname is still plain HTTP. The WAF
+allowlist limits who can reach it, but the credentials are not encrypted in
+transit. For encrypted browser authentication, configure a domain with
+`app_domain_name` plus a Route 53 zone so OpenTofu can issue an ACM certificate,
+then browse through that custom HTTPS domain.
+
+Cognito/ALB authentication also requires the custom HTTPS path. When
+`enable_cognito_auth=true`, `make k8s-render` renders the ALB Cognito
+annotations and sets `AUTH_MODE=cognito`. Users must be assigned to one of these
+Cognito user-pool groups:
+
+- `viewer`: chat and news tools only.
+- `investor`: market data, forex, news, simulations, and reports; no portfolio.
+- `admin`: all gateway capabilities.
 
 ## Apply Order
 
@@ -152,6 +205,6 @@ the PVC from an internal artifact source instead of pulling from the public
 Ollama registry at runtime.
 
 The LLM pod has `nodeSelector: workload=llm` and tolerates the matching
-`NoSchedule` taint from the Terraform EKS module. Keep
+`NoSchedule` taint from the OpenTofu EKS module. Keep
 `enable_llm_node_group=true` or remove those scheduling rules if you want to run
 Ollama on the general worker nodes.

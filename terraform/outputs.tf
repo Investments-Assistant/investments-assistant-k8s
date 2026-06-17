@@ -65,6 +65,31 @@ output "app_domain_name" {
   value       = module.acm.domain_name
 }
 
+output "auth_mode" {
+  description = "Gateway auth mode rendered into Kubernetes manifests"
+  value       = var.enable_cognito_auth ? "cognito" : "basic"
+}
+
+output "cognito_user_pool_id" {
+  description = "Cognito user pool ID used by the gateway to validate tokens"
+  value       = try(module.cognito[0].user_pool_id, "")
+}
+
+output "cognito_user_pool_arn" {
+  description = "Cognito user pool ARN used by ALB authentication"
+  value       = try(module.cognito[0].user_pool_arn, "")
+}
+
+output "cognito_user_pool_client_id" {
+  description = "Cognito user pool app client ID used by ALB and gateway"
+  value       = try(module.cognito[0].user_pool_client_id, "")
+}
+
+output "cognito_user_pool_domain" {
+  description = "Cognito hosted UI domain prefix used by ALB authentication"
+  value       = try(module.cognito[0].user_pool_domain, "")
+}
+
 output "irsa_role_arn" {
   description = "IRSA IAM role ARN — paste into k8s/serviceaccount.yaml ServiceAccount annotation"
   value       = module.secrets.irsa_role_arn

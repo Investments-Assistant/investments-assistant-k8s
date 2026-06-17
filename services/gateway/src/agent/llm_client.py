@@ -17,12 +17,13 @@ import aiohttp
 
 from src.agent.router import AgentRouter
 from src.agent.tools import TOOL_DEFINITIONS
+from src.auth import AuthContext, allowed_tool_definitions
 from src.config import settings
 
 logger = logging.getLogger(__name__)
 
 
-def _openai_tools() -> list[dict]:
+def _openai_tools(auth_context: AuthContext | None) -> list[dict]:
     return [
         {
             "type": "function",
@@ -32,7 +33,7 @@ def _openai_tools() -> list[dict]:
                 "parameters": tool["input_schema"],
             },
         }
-        for tool in TOOL_DEFINITIONS
+        for tool in allowed_tool_definitions(TOOL_DEFINITIONS, auth_context)
     ]
 
 
@@ -71,6 +72,7 @@ class LocalLLMClient:
         self,
         messages: list[dict[str, Any]],
         system: str,
+        auth_context: AuthContext | None = None,
     ) -> AsyncGenerator[dict, None]:
         """
         Async generator yielding gateway-compatible events.
@@ -88,7 +90,11 @@ class LocalLLMClient:
         async with aiohttp.ClientSession(timeout=self._timeout) as session:
             for _ in range(settings.agent_max_tool_iterations):
                 try:
-                    message = await self._chat_completion(session, working_messages)
+                    message = await self._chat_completion(
+                        session,
+                        working_messages,
+                        auth_context,
+                    )
                 except Exception as exc:
                     logger.exception("Local LLM request failed")
                     yield {"type": "error", "message": str(exc)}
@@ -130,7 +136,11 @@ class LocalLLMClient:
                             "input": tool_input,
                             "id": tool_id,
                         }
-                        result_str = await self._router.dispatch(name, tool_input)
+                        result_str = await self._router.dispatch(
+                            name,
+                            tool_input,
+                            auth_context=auth_context,
+                        )
 
                     yield {
                         "type": "tool_result",
@@ -156,6 +166,7 @@ class LocalLLMClient:
         self,
         session: aiohttp.ClientSession,
         messages: list[dict[str, Any]],
+        auth_context: AuthContext | None,
     ) -> dict[str, Any]:
         url = f"{settings.llm_base_url.rstrip('/')}/chat/completions"
         headers = {"Content-Type": "application/json"}
@@ -165,7 +176,7 @@ class LocalLLMClient:
         payload = {
             "model": settings.llm_model_name,
             "messages": messages,
-            "tools": _openai_tools(),
+            "tools": _openai_tools(auth_context),
             "tool_choice": "auto",
             "temperature": settings.agent_temperature,
             "max_tokens": settings.agent_max_tokens,

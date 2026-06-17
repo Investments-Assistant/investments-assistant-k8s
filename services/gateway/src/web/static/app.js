@@ -10,6 +10,10 @@ let reconnectTimer = null;
 let reconnectDelay = 1000;
 const MAX_RECONNECT = 30000;
 let latestPortfolioDashboard = null;
+let currentUser = {
+  role: 'viewer',
+  permissions: ['chat', 'news'],
+};
 
 // Map tool names to the owning agent for display
 const TOOL_AGENTS = {
@@ -181,6 +185,7 @@ function handleKey(e) {
 // ── Trading mode ───────────────────────────────────────────────────────────────
 
 async function setMode(mode) {
+  if (!hasPermission('trading')) return;
   document.getElementById('btn-recommend').classList.toggle('active', mode === 'recommend');
   document.getElementById('btn-auto').classList.toggle('active', mode === 'auto');
   const statusEl = document.getElementById('mode-status');
@@ -198,6 +203,7 @@ async function setMode(mode) {
 // ── Market snapshot ────────────────────────────────────────────────────────────
 
 async function loadSnapshot() {
+  if (!hasPermission('market')) return;
   const el = document.getElementById('market-snapshot');
   el.textContent = 'Loading…';
   try {
@@ -225,6 +231,7 @@ async function loadSnapshot() {
 }
 
 async function loadTrades() {
+  if (!hasPermission('portfolio')) return;
   const el = document.getElementById('trades-list');
   try {
     const resp = await fetch('/api/trades?limit=5');
@@ -260,6 +267,7 @@ async function loadChatHistory() {
 // ── Workspace views ──────────────────────────────────────────────────────────
 
 function showView(view) {
+  if (view === 'portfolio' && !hasPermission('portfolio')) view = 'chat';
   const isChat = view === 'chat';
   document.getElementById('messages').classList.toggle('hidden', !isChat);
   document.getElementById('chat-input-area').classList.toggle('hidden', !isChat);
@@ -272,6 +280,7 @@ function showView(view) {
 // ── Portfolio dashboard ──────────────────────────────────────────────────────
 
 async function loadPortfolioDashboard() {
+  if (!hasPermission('portfolio')) return;
   const updated = document.getElementById('portfolio-updated');
   updated.textContent = 'Loading portfolio state…';
   try {
@@ -428,6 +437,7 @@ function renderPortfolioTrades(trades) {
 }
 
 function askAboutPortfolio() {
+  if (!hasPermission('portfolio')) return;
   showView('chat');
   sendQuick(
     'Analyse my current portfolio. Use the portfolio summary, recent trades, market data, ' +
@@ -482,6 +492,33 @@ function setStatus(state) {
   const el = document.getElementById('connection-status');
   el.className = 'conn-status ' + state;
   el.textContent = state === 'online' ? 'Connected' : state === 'connecting' ? 'Connecting…' : 'Disconnected';
+}
+function hasPermission(permission) {
+  const permissions = currentUser?.permissions || [];
+  return permissions.includes(permission) || permissions.includes('admin');
+}
+async function loadCurrentUser() {
+  try {
+    const resp = await fetch('/api/me');
+    if (resp.ok) currentUser = await resp.json();
+  } catch (_) {
+    currentUser = { role: 'viewer', permissions: ['chat', 'news'] };
+  }
+  applyAccessControls();
+}
+function applyAccessControls() {
+  document.querySelectorAll('[data-permission]').forEach(el => {
+    const allowed = hasPermission(el.dataset.permission);
+    el.classList.toggle('hidden', !allowed);
+    if ('disabled' in el) el.disabled = !allowed;
+  });
+  if (!hasPermission('portfolio')) {
+    document.getElementById('portfolio-view').classList.add('hidden');
+    document.getElementById('messages').classList.remove('hidden');
+    document.getElementById('chat-input-area').classList.remove('hidden');
+    document.getElementById('nav-chat').classList.add('active');
+    document.getElementById('nav-portfolio').classList.remove('active');
+  }
 }
 function timeNow() {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -576,14 +613,17 @@ function appendWelcomeMessage() {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 globalThis.addEventListener('DOMContentLoaded', async () => {
+  await loadCurrentUser();
   connect();
   await loadChatHistory();
-  loadSnapshot();
-  loadTrades();
-  loadPortfolioDashboard();
+  if (hasPermission('market')) loadSnapshot();
+  if (hasPermission('portfolio')) {
+    loadTrades();
+    loadPortfolioDashboard();
+  }
   checkAgentHealth();
-  setInterval(loadSnapshot, 5 * 60 * 1000);
-  setInterval(loadTrades, 30 * 1000);
+  if (hasPermission('market')) setInterval(loadSnapshot, 5 * 60 * 1000);
+  if (hasPermission('portfolio')) setInterval(loadTrades, 30 * 1000);
   setInterval(checkAgentHealth, 60 * 1000);
   setSendEnabled(true);
 

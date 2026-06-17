@@ -71,6 +71,8 @@ OpenTofu builds the infrastructure:
 - The ACM module creates and validates the ALB HTTPS certificate when
   `app_domain_name` and either `app_route53_zone_id` or
   `app_route53_zone_name` are set.
+- The Cognito module creates the application user pool and role groups when
+  `enable_cognito_auth=true`.
 - The RDS and ElastiCache modules provide PostgreSQL and Redis.
 - The WAF module protects the public ALB.
 - The secrets module creates IAM roles and permissions for Kubernetes service
@@ -128,10 +130,16 @@ make lint
 ## Cloud Deployment Flow
 
 1. Fill `terraform/terraform.tfvars` from `terraform/terraform.tfvars.example`.
-2. Set `app_domain_name` and either `app_route53_zone_id` or
+2. Set `allowed_ip_cidrs` to the public IPv4 AWS sees from your home VPN egress,
+   for example `203.0.113.10/32`.
+3. Set `UI_AUTH_USERNAME` and `UI_AUTH_PASSWORD` in `app_secret_values` for the
+   Basic Auth fallback path.
+4. Set `app_domain_name` and either `app_route53_zone_id` or
    `app_route53_zone_name` if you want OpenTofu to create the ALB HTTPS
    certificate.
-3. Run the end-to-end deployment:
+5. Set `enable_cognito_auth=true` if you want Cognito user login and
+   `viewer`/`investor`/`admin` role groups. This requires step 4.
+6. Run the end-to-end deployment:
 
 ```bash
 make deploy-e2e
@@ -150,6 +158,22 @@ OpenTofu output with `ACM_CERT_ARN=arn:aws:acm:...`.
 
 If no certificate is available, the generated ingress is HTTP-only. Set
 `app_domain_name` and a Route 53 zone in OpenTofu to enable HTTPS.
+
+For the no-Route-53 path, use the AWS-managed ALB hostname:
+
+```bash
+make alb-url
+```
+
+That URL is not localhost; it is the public ALB entry point protected by WAF and
+gateway Basic Auth. Without your own domain and ACM certificate, the ALB
+hostname is HTTP-only, so credentials are not encrypted in transit even though
+the WAF allowlist limits who can reach it.
+
+When Cognito auth is enabled, users sign in through the ALB/Cognito hosted UI.
+The gateway validates Cognito tokens and applies group-based permissions:
+`viewer` can chat about news, `investor` can use non-portfolio analysis tools,
+and `admin` can use everything.
 
 By default the command does not pull an Ollama model from an external registry.
 For non-air-gapped deployments, add `PULL_LLM_MODEL=true` to pull the configured

@@ -1,6 +1,6 @@
 .PHONY: help dev-up dev-down dev-build dev-logs dev-ps \
         deploy-e2e kubeconfig k8s-render k8s-apply-rendered \
-        k8s-wait-external-secrets k8s-wait-pvcs k8s-rollout-status llm-model k8s-apply k8s-delete k8s-status \
+        k8s-wait-external-secrets k8s-wait-pvcs k8s-rollout-status llm-model alb-url k8s-apply k8s-delete k8s-status \
         tf-init tf-plan tf-apply tf-destroy \
         ecr-login push lint test
 
@@ -40,6 +40,7 @@ help:
 	@echo "    make k8s-apply     Apply all manifests to current kubectl context"
 	@echo "    make k8s-delete    Delete all resources"
 	@echo "    make k8s-status    Show pod/service status"
+	@echo "    make alb-url       Show the AWS ALB hostname for the gateway"
 	@echo ""
 	@echo "OpenTofu (AWS):"
 	@echo "    make tf-init       tofu init"
@@ -80,6 +81,7 @@ deploy-e2e:
 	@$(MAKE) push
 	@$(MAKE) k8s-apply K8S_MANIFEST_DIR=$(K8S_RENDER_DIR)
 	@$(MAKE) k8s-rollout-status
+	@$(MAKE) alb-url
 	@$(MAKE) llm-model
 	@echo "End-to-end deployment complete."
 
@@ -98,8 +100,10 @@ k8s-render:
 	@cp -R k8s "$(K8S_RENDER_DIR)"
 	@$(TOFU) -chdir=terraform workspace select -or-create "$(TF_WORKSPACE)" >/dev/null
 	@ACCOUNT="$$(aws sts get-caller-identity --query Account --output text)"; \
+	AWS_REGION="$(AWS_REGION)"; \
 	TF_OUTPUTS="$$($(TOFU) -chdir=terraform output -no-color -json 2>/dev/null || echo '{}')"; \
 	ALLOWED_IPS="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("allowed_ip_cidrs", {}).get("value", []); print(",".join(v) if isinstance(v, list) else str(v or ""))' 2>/dev/null)"; \
+	AUTH_MODE="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("auth_mode", {}).get("value", "basic"); print(v or "basic")' 2>/dev/null)"; \
 	RDS_ENDPOINT="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("rds_endpoint", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
 	RDS_PORT="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("rds_port", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
 	RDS_DATABASE_NAME="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("rds_database_name", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
@@ -108,15 +112,24 @@ k8s-render:
 	WAF_ARN="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("waf_webacl_arn", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
 	IRSA_ARN="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("irsa_role_arn", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
 	ACM_CERT_ARN_FROM_TF="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("acm_certificate_arn", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
+	COGNITO_USER_POOL_ID="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("cognito_user_pool_id", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
+	COGNITO_USER_POOL_ARN="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("cognito_user_pool_arn", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
+	COGNITO_APP_CLIENT_ID="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("cognito_user_pool_client_id", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
+	COGNITO_USER_POOL_DOMAIN="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("cognito_user_pool_domain", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
 	ACM_CERT_ARN="$${ACM_CERT_ARN:-$$ACM_CERT_ARN_FROM_TF}"; \
 	if [ -z "$$ALLOWED_IPS" ] || [ -z "$$RDS_ENDPOINT" ] || [ -z "$$RDS_PORT" ] || [ -z "$$RDS_DATABASE_NAME" ] || [ -z "$$RDS_MASTER_USERNAME" ] || [ -z "$$REDIS_ENDPOINT" ] || [ -z "$$WAF_ARN" ] || [ -z "$$IRSA_ARN" ]; then \
 	  echo "Missing OpenTofu outputs. Run make tf-apply and make sure it completes successfully before rendering Kubernetes manifests."; \
 	  rm -rf "$(K8S_RENDER_DIR)"; \
 	  exit 1; \
 	fi; \
-	export ACCOUNT ALLOWED_IPS RDS_ENDPOINT RDS_PORT RDS_DATABASE_NAME RDS_MASTER_USERNAME REDIS_ENDPOINT WAF_ARN IRSA_ARN ACM_CERT_ARN; \
+	if [ "$$AUTH_MODE" = "cognito" ] && { [ -z "$$ACM_CERT_ARN" ] || [ -z "$$COGNITO_USER_POOL_ID" ] || [ -z "$$COGNITO_USER_POOL_ARN" ] || [ -z "$$COGNITO_APP_CLIENT_ID" ] || [ -z "$$COGNITO_USER_POOL_DOMAIN" ]; }; then \
+	  echo "Cognito auth requires app_domain_name/ACM and Cognito outputs. Run make tf-apply with enable_cognito_auth=true and a HTTPS domain."; \
+	  rm -rf "$(K8S_RENDER_DIR)"; \
+	  exit 1; \
+	fi; \
+	export ACCOUNT AWS_REGION ALLOWED_IPS AUTH_MODE RDS_ENDPOINT RDS_PORT RDS_DATABASE_NAME RDS_MASTER_USERNAME REDIS_ENDPOINT WAF_ARN IRSA_ARN ACM_CERT_ARN COGNITO_USER_POOL_ID COGNITO_USER_POOL_ARN COGNITO_APP_CLIENT_ID COGNITO_USER_POOL_DOMAIN; \
 	find "$(K8S_RENDER_DIR)" -name deployment.yaml -print0 | xargs -0 perl -0pi -e 's/ACCOUNT/$$ENV{ACCOUNT}/g'; \
-	perl -0pi -e 's|REPLACE_WITH_ALLOWED_IPS|$$ENV{ALLOWED_IPS}|g; s|REPLACE_WITH_RDS_ENDPOINT|$$ENV{RDS_ENDPOINT}|g; s|REPLACE_WITH_RDS_PORT|$$ENV{RDS_PORT}|g; s|REPLACE_WITH_RDS_DATABASE_NAME|$$ENV{RDS_DATABASE_NAME}|g; s|REPLACE_WITH_RDS_MASTER_USERNAME|$$ENV{RDS_MASTER_USERNAME}|g; s|REPLACE_WITH_REDIS_ENDPOINT|$$ENV{REDIS_ENDPOINT}|g' "$(K8S_RENDER_DIR)/configmap.yaml"; \
+	perl -0pi -e 's|REPLACE_WITH_ALLOWED_IPS|$$ENV{ALLOWED_IPS}|g; s|REPLACE_WITH_AUTH_MODE|$$ENV{AUTH_MODE}|g; s|REPLACE_WITH_AWS_REGION|$$ENV{AWS_REGION}|g; s|REPLACE_WITH_COGNITO_USER_POOL_ID|$$ENV{COGNITO_USER_POOL_ID}|g; s|REPLACE_WITH_COGNITO_APP_CLIENT_ID|$$ENV{COGNITO_APP_CLIENT_ID}|g; s|REPLACE_WITH_RDS_ENDPOINT|$$ENV{RDS_ENDPOINT}|g; s|REPLACE_WITH_RDS_PORT|$$ENV{RDS_PORT}|g; s|REPLACE_WITH_RDS_DATABASE_NAME|$$ENV{RDS_DATABASE_NAME}|g; s|REPLACE_WITH_RDS_MASTER_USERNAME|$$ENV{RDS_MASTER_USERNAME}|g; s|REPLACE_WITH_REDIS_ENDPOINT|$$ENV{REDIS_ENDPOINT}|g' "$(K8S_RENDER_DIR)/configmap.yaml"; \
 	perl -0pi -e 's|arn:aws:iam::ACCOUNT:role/investments-assistant-investments-sa-role|$$ENV{IRSA_ARN}|g; s/ACCOUNT/$$ENV{ACCOUNT}/g' "$(K8S_RENDER_DIR)/serviceaccount.yaml"; \
 	perl -0pi -e 's|arn:aws:wafv2:eu-south-2:ACCOUNT:regional/webacl/investments-allowlist/WEBACL_ID|$$ENV{WAF_ARN}|g; s/ACCOUNT/$$ENV{ACCOUNT}/g' "$(K8S_RENDER_DIR)/ingress.yaml"; \
 	python3 scripts/render_ingress.py "$(K8S_RENDER_DIR)/ingress.yaml"
@@ -143,6 +156,20 @@ llm-model:
 	else \
 	  echo "Skipping LLM model pull. Set PULL_LLM_MODEL=true to run: ollama pull $(LLM_MODEL)"; \
 	fi
+
+alb-url:
+	@for i in $$(seq 1 60); do \
+	  HOST="$$(kubectl -n $(K8S_NS) get ingress investments-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"; \
+	  if [ -n "$$HOST" ]; then \
+	    echo "AWS ALB hostname: $$HOST"; \
+	    echo "Built-in ALB URL: http://$$HOST"; \
+	    echo "Use your custom domain for HTTPS when ACM is configured."; \
+	    exit 0; \
+	  fi; \
+	  sleep 5; \
+	done; \
+	echo "ALB hostname is not ready yet. Check: kubectl -n $(K8S_NS) describe ingress investments-ingress"; \
+	exit 1
 
 # ── Kubernetes ────────────────────────────────────────────────────────────────
 k8s-apply:

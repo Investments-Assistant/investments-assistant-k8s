@@ -7,9 +7,22 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Depends,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import HTMLResponse
 
+from src.auth import (
+    AuthContext,
+    WebSocketAuthError,
+    authenticate_websocket,
+    require_access,
+    require_permission,
+)
 from src.config import settings
 
 logger = logging.getLogger(__name__)
@@ -18,41 +31,24 @@ router = APIRouter()
 STATIC_DIR = Path(__file__).parent / "static"
 
 
-# ── IP whitelist ───────────────────────────────────────────────────────────────
-
-
-def _client_ip(req: Request | WebSocket) -> str:
-    if isinstance(req, Request):
-        headers = req.headers
-        client = req.client
-    else:
-        headers = req.headers
-        client = req.client
-    xff = headers.get("X-Forwarded-For")
-    if xff:
-        return xff.split(",")[0].strip()
-    return client.host if client else "0.0.0.0"
-
-
-def require_ip(request: Request) -> None:
-    ip = _client_ip(request)
-    if not settings.is_development and not settings.is_ip_allowed(ip):
-        logger.warning("Blocked %s", ip)
-        raise HTTPException(status_code=403, detail="Access denied")
-
-
 # ── WebSocket chat ─────────────────────────────────────────────────────────────
 
 
 @router.websocket("/ws/chat/{session_id}")
 async def ws_chat(websocket: WebSocket, session_id: str) -> None:
-    ip = _client_ip(websocket)
-    if not settings.is_development and not settings.is_ip_allowed(ip):
-        await websocket.close(code=4003, reason="Access denied")
+    try:
+        auth_context = authenticate_websocket(websocket)
+    except WebSocketAuthError as exc:
+        await websocket.close(code=4003, reason=exc.reason)
         return
 
     await websocket.accept()
-    logger.info("WS connected session=%s ip=%s", session_id, ip)
+    logger.info(
+        "WS connected session=%s user=%s role=%s",
+        session_id,
+        auth_context.username,
+        auth_context.role,
+    )
 
     from src.agent.orchestrator import get_or_create_session
 
@@ -69,7 +65,7 @@ async def ws_chat(websocket: WebSocket, session_id: str) -> None:
             if not user_msg:
                 continue
 
-            async for event in session.chat(user_msg):
+            async for event in session.chat(user_msg, auth_context=auth_context):
                 await websocket.send_json(event)
 
     except WebSocketDisconnect:
@@ -92,6 +88,7 @@ async def health() -> dict:
         "timestamp": datetime.now(UTC).isoformat(),
         "trading_mode": settings.trading_mode,
         "model": settings.llm_model_name,
+        "auth_mode": settings.auth_mode,
         "services": {
             "market_data": settings.market_data_url,
             "news": settings.news_url,
@@ -103,20 +100,33 @@ async def health() -> dict:
     }
 
 
-@router.get("/api/market/snapshot", dependencies=[Depends(require_ip)])
-async def market_snapshot() -> dict:
+@router.get("/api/me")
+async def current_user(auth: AuthContext = Depends(require_access)) -> dict:
+    return auth.to_public_dict()
+
+
+@router.get("/api/market/snapshot")
+async def market_snapshot(
+    auth: AuthContext = Depends(require_permission("market")),
+) -> dict:
     """Return the latest cached market snapshot (served by the scheduler service)."""
     from src.agent.router import get_router
 
-    result_str = await get_router().dispatch("get_market_overview", {})
+    result_str = await get_router().dispatch(
+        "get_market_overview",
+        {},
+        auth_context=auth,
+    )
     try:
         return json.loads(result_str)
     except json.JSONDecodeError:
         return {"raw": result_str}
 
 
-@router.get("/api/reports", dependencies=[Depends(require_ip)])
-async def list_reports() -> list[dict]:
+@router.get("/api/reports")
+async def list_reports(
+    auth: AuthContext = Depends(require_permission("reports")),
+) -> list[dict]:
     """Proxy to scheduler service for report listing."""
     try:
         import aiohttp
@@ -130,8 +140,7 @@ async def list_reports() -> list[dict]:
     return []
 
 
-@router.get("/api/trades", dependencies=[Depends(require_ip)])
-async def list_trades(limit: int = 50) -> list[dict]:
+async def _fetch_trades(limit: int = 50) -> list[dict]:
     """Proxy to portfolio service for trade listing."""
     try:
         import aiohttp
@@ -145,8 +154,20 @@ async def list_trades(limit: int = 50) -> list[dict]:
     return []
 
 
-@router.get("/api/chat/{session_id}/messages", dependencies=[Depends(require_ip)])
-async def chat_history(session_id: str, limit: int = 200) -> list[dict]:
+@router.get("/api/trades")
+async def list_trades(
+    limit: int = 50,
+    auth: AuthContext = Depends(require_permission("portfolio")),
+) -> list[dict]:
+    return await _fetch_trades(limit)
+
+
+@router.get("/api/chat/{session_id}/messages")
+async def chat_history(
+    session_id: str,
+    limit: int = 200,
+    auth: AuthContext = Depends(require_permission("chat")),
+) -> list[dict]:
     """Return persisted chat history for the browser session."""
     from sqlalchemy import desc, select
 
@@ -179,12 +200,18 @@ async def chat_history(session_id: str, limit: int = 200) -> list[dict]:
     ]
 
 
-@router.get("/api/portfolio/dashboard", dependencies=[Depends(require_ip)])
-async def portfolio_dashboard() -> dict:
+@router.get("/api/portfolio/dashboard")
+async def portfolio_dashboard(
+    auth: AuthContext = Depends(require_permission("portfolio")),
+) -> dict:
     """Portfolio dashboard payload: current broker summary plus recent trades."""
     from src.agent.router import get_router
 
-    summary_str = await get_router().dispatch("get_portfolio_summary", {})
+    summary_str = await get_router().dispatch(
+        "get_portfolio_summary",
+        {},
+        auth_context=auth,
+    )
     try:
         summary = json.loads(summary_str)
     except json.JSONDecodeError:
@@ -193,12 +220,15 @@ async def portfolio_dashboard() -> dict:
     return {
         "timestamp": datetime.now(UTC).isoformat(),
         "summary": summary,
-        "trades": await list_trades(limit=20),
+        "trades": await _fetch_trades(limit=20),
     }
 
 
-@router.post("/api/autonomous-scan", dependencies=[Depends(require_ip)])
-async def trigger_autonomous_scan(request: Request) -> dict:
+@router.post("/api/autonomous-scan")
+async def trigger_autonomous_scan(
+    request: Request,
+    auth: AuthContext = Depends(require_permission("admin")),
+) -> dict:
     """Trigger an autonomous market scan (called by the scheduler)."""
     from src.agent.orchestrator import get_or_create_session
 
@@ -216,7 +246,7 @@ async def trigger_autonomous_scan(request: Request) -> dict:
 
     text_parts: list[str] = []
     try:
-        async for event in session.chat(prompt):
+        async for event in session.chat(prompt, auth_context=auth):
             if event["type"] == "text_delta":
                 text_parts.append(event["text"])
         return {"status": "ok", "summary": "".join(text_parts)[:500]}
@@ -227,6 +257,10 @@ async def trigger_autonomous_scan(request: Request) -> dict:
 # ── Chat UI ───────────────────────────────────────────────────────────────────
 
 
-@router.get("/", response_class=HTMLResponse, dependencies=[Depends(require_ip)])
-async def chat_ui() -> HTMLResponse:
-    return HTMLResponse(content=(STATIC_DIR / "index.html").read_text(), status_code=200)
+@router.get(
+    "/",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("chat"))],
+)
+async def chat_ui() -> str:
+    return (STATIC_DIR / "index.html").read_text()

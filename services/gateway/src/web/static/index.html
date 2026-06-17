@@ -17,11 +17,16 @@
       <div class="section-title">Workspaces</div>
       <div class="workspace-nav">
         <button id="nav-chat" class="workspace-btn active" onclick="showView('chat')">Chat</button>
-        <button id="nav-portfolio" class="workspace-btn" onclick="showView('portfolio')">Portfolio</button>
+        <button
+          id="nav-portfolio"
+          class="workspace-btn"
+          data-permission="portfolio"
+          onclick="showView('portfolio')"
+        >Portfolio</button>
       </div>
     </div>
 
-    <div class="sidebar-section">
+    <div class="sidebar-section" data-permission="trading">
       <div class="section-title">Trading Mode</div>
       <div class="mode-toggle">
         <button id="btn-recommend" class="mode-btn active" onclick="setMode('recommend')">Recommend</button>
@@ -42,7 +47,7 @@
       </div>
     </div>
 
-    <div class="sidebar-section">
+    <div class="sidebar-section" data-permission="market">
       <div class="section-title">Market Snapshot</div>
       <div id="market-snapshot" class="market-snapshot">Loading…</div>
       <button class="refresh-btn" onclick="loadSnapshot()">↻ Refresh</button>
@@ -51,16 +56,16 @@
     <div class="sidebar-section">
       <div class="section-title">Quick Prompts</div>
       <div class="quick-prompts">
-        <button onclick="sendQuick('Give me a full market overview right now.')">Market Overview</button>
-        <button onclick="sendQuick('Analyse my portfolio and suggest any rebalancing.')">Portfolio Analysis</button>
-        <button onclick="sendQuick('What are the top crypto opportunities today? Check BTC, ETH, SOL.')">Crypto Scan</button>
-        <button onclick="sendQuick('Run a buy-and-hold simulation on AAPL, MSFT, NVDA from 2022-01-01.')">Backtest</button>
-        <button onclick="sendQuick('Generate my weekly investment report for the past 7 days.')">Weekly Report</button>
-        <button onclick="sendQuick('Search for news about Federal Reserve and analyse sentiment.')">Fed News</button>
+        <button data-permission="market" onclick="sendQuick('Give me a full market overview right now.')">Market Overview</button>
+        <button data-permission="portfolio" onclick="sendQuick('Analyse my portfolio and suggest any rebalancing.')">Portfolio Analysis</button>
+        <button data-permission="market" onclick="sendQuick('What are the top crypto opportunities today? Check BTC, ETH, SOL.')">Crypto Scan</button>
+        <button data-permission="simulation" onclick="sendQuick('Run a buy-and-hold simulation on AAPL, MSFT, NVDA from 2022-01-01.')">Backtest</button>
+        <button data-permission="reports" onclick="sendQuick('Generate my weekly investment report for the past 7 days.')">Weekly Report</button>
+        <button data-permission="news" onclick="sendQuick('Search for news about Federal Reserve and analyse sentiment.')">Fed News</button>
       </div>
     </div>
 
-    <div class="sidebar-section">
+    <div class="sidebar-section" data-permission="portfolio">
       <div class="section-title">Recent Trades</div>
       <div id="trades-list" class="reports-list">Loading…</div>
     </div>
@@ -75,7 +80,7 @@
 
     <div id="messages" class="messages"></div>
 
-    <section id="portfolio-view" class="view hidden">
+    <section id="portfolio-view" class="view hidden" data-permission="portfolio">
       <div class="view-header">
         <div>
           <h1>Portfolio Dashboard</h1>
