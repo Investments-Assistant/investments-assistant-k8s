@@ -14,6 +14,7 @@ on:
 env:
   AWS_REGION: eu-south-2
   CLUSTER_NAME: investments-assistant
+  HELM_CHARTS_DIR: helm-charts
   AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN || secrets.AWS_DEPLOY_ROLE_ARN }}
 
 permissions:
@@ -26,6 +27,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Checkout Helm charts
+        uses: actions/checkout@v4
+        with:
+          repository: Investments-Assistant/helm-charts
+          path: helm-charts
 
       - name: Check AWS OIDC role configuration
         run: |
@@ -42,6 +49,9 @@ jobs:
 
       - name: Setup OpenTofu
         uses: opentofu/setup-opentofu@v1
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
 
       - name: Initialize OpenTofu
         run: make tf-init

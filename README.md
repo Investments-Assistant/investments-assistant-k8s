@@ -62,11 +62,11 @@ flowchart TB
 
 ## How The Pieces Fit
 
-OpenTofu builds the infrastructure:
+OpenTofu builds the AWS infrastructure:
 
 - The VPC module creates networking.
 - The EKS module creates the cluster, general worker node group, dedicated LLM
-  node group, controllers, and EFS storage.
+  node group, EFS storage, and IAM roles for cluster add-ons.
 - The ECR module creates one image repository per service.
 - The ACM module creates and validates the ALB HTTPS certificate when
   `app_domain_name` and either `app_route53_zone_id` or
@@ -78,7 +78,14 @@ OpenTofu builds the infrastructure:
 - The secrets module creates IAM roles and permissions for Kubernetes service
   accounts and External Secrets.
 
-Kubernetes then deploys the application:
+Helm installs the in-cluster add-ons from the separate
+`Investments-Assistant/helm-charts` repository:
+
+- AWS EFS CSI driver plus the `efs-sc` StorageClass.
+- AWS Load Balancer Controller.
+- External Secrets Operator and CRDs.
+
+Kubernetes manifests then deploy the application:
 
 - `gateway` is the only external service, reached through ALB Ingress.
 - `market-data`, `forex`, `news`, `portfolio`, `simulation`, and `scheduler`
@@ -139,16 +146,19 @@ make lint
    certificate.
 5. Set `enable_cognito_auth=true` if you want Cognito user login and
    `viewer`/`investor`/`admin` role groups. This requires step 4.
-6. Run the end-to-end deployment:
+6. Clone `Investments-Assistant/helm-charts` next to this repository, or set
+   `HELM_CHARTS_DIR` to its path.
+7. Run the end-to-end deployment:
 
 ```bash
 make deploy-e2e
 ```
 
 `deploy-e2e` runs OpenTofu, updates kubeconfig, builds and pushes service
-images to ECR, renders Kubernetes manifests with OpenTofu outputs, applies
-them, updates the Route 53 ALIAS for `app_domain_name` when configured, and
-waits for rollouts. OpenTofu writes `db_password` from
+images to ECR, renders Kubernetes manifests with OpenTofu outputs, installs or
+updates the Helm add-ons, applies the manifests, updates the Route 53 ALIAS for
+`app_domain_name` when configured, and waits for rollouts. OpenTofu writes
+`db_password` from
 `$(TF_ENV).tfvars` into the `investments/prod` Secrets Manager secret as
 `POSTGRES_PASSWORD`; the rendered ConfigMap uses OpenTofu outputs for the RDS
 host, port, database name, username, and application IP allowlist. Rendered

@@ -1,5 +1,6 @@
 .PHONY: help dev-up dev-down dev-build dev-logs dev-ps \
         deploy-e2e kubeconfig k8s-render k8s-apply-rendered \
+        helm-deps helm-apply helm-delete helm-status \
         k8s-wait-external-secrets k8s-wait-pvcs k8s-rollout-status llm-model alb-url route53-alias k8s-apply k8s-delete k8s-status \
         tf-init tf-validate tf-plan tf-apply tf-destroy \
         ecr-login push lint test
@@ -8,12 +9,14 @@ SHELL := /bin/bash
 AWS_REGION   ?= eu-south-2
 AWS_ACCOUNT  ?= $(shell aws sts get-caller-identity --query Account --output text)
 TOFU         ?= tofu
+HELM         ?= helm
 ECR_REGISTRY = $(AWS_ACCOUNT).dkr.ecr.$(AWS_REGION).amazonaws.com
 APP_SERVICES := gateway market-data news portfolio simulation scheduler forex
 K8S_SERVICES := llm $(APP_SERVICES)
 K8S_NS       := investments
 K8S_MANIFEST_DIR ?= k8s
 K8S_RENDER_DIR ?= .rendered/k8s
+HELM_CHARTS_DIR ?= ../helm-charts
 ifdef TF_WORKSPACE
 TF_ENV ?= $(TF_WORKSPACE)
 else
@@ -44,6 +47,7 @@ help:
 	@echo "    make deploy-e2e"
 	@echo ""
 	@echo "Kubernetes:"
+	@echo "    make helm-apply    Install or upgrade cluster add-on Helm charts"
 	@echo "    make k8s-apply     Apply all manifests to current kubectl context"
 	@echo "    make k8s-delete    Delete all resources"
 	@echo "    make k8s-status    Show pod/service status"
@@ -151,6 +155,76 @@ k8s-render:
 k8s-apply-rendered: k8s-render
 	$(MAKE) k8s-apply K8S_MANIFEST_DIR=$(K8S_RENDER_DIR)
 
+# ── Helm cluster add-ons ─────────────────────────────────────────────────────
+helm-deps:
+	@test -d "$(HELM_CHARTS_DIR)/charts" || { echo "Missing Helm charts at $(HELM_CHARTS_DIR). Clone Investments-Assistant/helm-charts or set HELM_CHARTS_DIR."; exit 1; }
+	@$(HELM) repo add aws-efs-csi-driver https://kubernetes-sigs.github.io/aws-efs-csi-driver/ --force-update >/dev/null
+	@$(HELM) repo add eks https://aws.github.io/eks-charts --force-update >/dev/null
+	@$(HELM) repo add external-secrets https://charts.external-secrets.io --force-update >/dev/null
+	@$(HELM) repo update
+	@for chart in aws-efs-csi-driver aws-load-balancer-controller external-secrets; do \
+	  $(HELM) dependency build "$(HELM_CHARTS_DIR)/charts/$$chart"; \
+	done
+
+helm-apply: helm-deps
+	@$(TOFU) -chdir=terraform workspace select -or-create "$(TF_ENV)" >/dev/null
+	@set -e; \
+	TF_OUTPUTS="$$($(TOFU) -chdir=terraform output -no-color -json 2>/dev/null || echo '{}')"; \
+	ACCOUNT="$$(aws sts get-caller-identity --query Account --output text)"; \
+	CLUSTER="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; print(json.loads(os.environ["TF_OUTPUTS"]).get("cluster_name", {}).get("value", ""))' 2>/dev/null)"; \
+	VPC_ID="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; print(json.loads(os.environ["TF_OUTPUTS"]).get("vpc_id", {}).get("value", ""))' 2>/dev/null)"; \
+	EFS_ID="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; print(json.loads(os.environ["TF_OUTPUTS"]).get("efs_id", {}).get("value", ""))' 2>/dev/null)"; \
+	EFS_CSI_ROLE_ARN="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; print(json.loads(os.environ["TF_OUTPUTS"]).get("efs_csi_role_arn", {}).get("value", ""))' 2>/dev/null)"; \
+	ALBC_ROLE_ARN="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; print(json.loads(os.environ["TF_OUTPUTS"]).get("aws_load_balancer_controller_role_arn", {}).get("value", ""))' 2>/dev/null)"; \
+	if [ -z "$$EFS_CSI_ROLE_ARN" ] && [ -n "$$ACCOUNT" ] && [ -n "$$CLUSTER" ]; then EFS_CSI_ROLE_ARN="arn:aws:iam::$$ACCOUNT:role/$$CLUSTER-efs-csi-role"; fi; \
+	if [ -z "$$ALBC_ROLE_ARN" ] && [ -n "$$ACCOUNT" ] && [ -n "$$CLUSTER" ]; then ALBC_ROLE_ARN="arn:aws:iam::$$ACCOUNT:role/$$CLUSTER-albc-role"; fi; \
+	if [ -z "$$CLUSTER" ] || [ -z "$$VPC_ID" ] || [ -z "$$EFS_ID" ] || [ -z "$$EFS_CSI_ROLE_ARN" ] || [ -z "$$ALBC_ROLE_ARN" ]; then \
+	  echo "Missing OpenTofu outputs required for Helm add-ons. Run make tf-apply before make helm-apply."; \
+	  exit 1; \
+	fi; \
+	if kubectl get storageclass efs-sc >/dev/null 2>&1; then \
+	  kubectl label storageclass efs-sc app.kubernetes.io/managed-by=Helm --overwrite; \
+	  kubectl annotate storageclass efs-sc meta.helm.sh/release-name=aws-efs-csi-driver meta.helm.sh/release-namespace=kube-system --overwrite; \
+	fi; \
+	$(HELM) upgrade --install aws-efs-csi-driver "$(HELM_CHARTS_DIR)/charts/aws-efs-csi-driver" \
+	  --namespace kube-system \
+	  --atomic \
+	  --timeout 15m \
+	  --wait \
+	  --set-string 'aws-efs-csi-driver.controller.serviceAccount.annotations.eks\.amazonaws\.com/role-arn'="$$EFS_CSI_ROLE_ARN" \
+	  --set-string 'aws-efs-csi-driver.storageClasses[0].name'=efs-sc \
+	  --set-string 'aws-efs-csi-driver.storageClasses[0].parameters.provisioningMode'=efs-ap \
+	  --set-string 'aws-efs-csi-driver.storageClasses[0].parameters.fileSystemId'="$$EFS_ID" \
+	  --set-string 'aws-efs-csi-driver.storageClasses[0].parameters.directoryPerms'=700 \
+	  --set-string 'aws-efs-csi-driver.storageClasses[0].reclaimPolicy'=Retain \
+	  --set-string 'aws-efs-csi-driver.storageClasses[0].volumeBindingMode'=Immediate; \
+	$(HELM) upgrade --install aws-load-balancer-controller "$(HELM_CHARTS_DIR)/charts/aws-load-balancer-controller" \
+	  --namespace kube-system \
+	  --atomic \
+	  --timeout 15m \
+	  --wait \
+	  --set-string 'aws-load-balancer-controller.clusterName'="$$CLUSTER" \
+	  --set-string 'aws-load-balancer-controller.region'="$(AWS_REGION)" \
+	  --set-string 'aws-load-balancer-controller.vpcId'="$$VPC_ID" \
+	  --set-string 'aws-load-balancer-controller.serviceAccount.annotations.eks\.amazonaws\.com/role-arn'="$$ALBC_ROLE_ARN"; \
+	$(HELM) upgrade --install external-secrets "$(HELM_CHARTS_DIR)/charts/external-secrets" \
+	  --namespace external-secrets \
+	  --create-namespace \
+	  --atomic \
+	  --cleanup-on-fail \
+	  --timeout 15m \
+	  --wait
+
+helm-delete:
+	-$(HELM) uninstall external-secrets --namespace external-secrets
+	-$(HELM) uninstall aws-load-balancer-controller --namespace kube-system
+	-$(HELM) uninstall aws-efs-csi-driver --namespace kube-system
+
+helm-status:
+	$(HELM) status aws-efs-csi-driver --namespace kube-system
+	$(HELM) status aws-load-balancer-controller --namespace kube-system
+	$(HELM) status external-secrets --namespace external-secrets
+
 k8s-rollout-status:
 	@for svc in $(K8S_SERVICES); do \
 	  echo "▶ Waiting for $$svc rollout"; \
@@ -215,7 +289,7 @@ route53-alias:
 	echo "Route 53 alias updated: https://$$APP_DOMAIN -> $$HOST"
 
 # ── Kubernetes ────────────────────────────────────────────────────────────────
-k8s-apply:
+k8s-apply: helm-apply
 	kubectl apply -f $(K8S_MANIFEST_DIR)/namespace.yaml
 	kubectl apply -f $(K8S_MANIFEST_DIR)/configmap.yaml
 	kubectl apply -f $(K8S_MANIFEST_DIR)/serviceaccount.yaml
@@ -235,7 +309,7 @@ k8s-wait-external-secrets:
 	  for i in $$(seq 1 60); do \
 	    if kubectl get crd $$crd >/dev/null 2>&1; then break; fi; \
 	    if [ "$$i" = "60" ]; then \
-	      echo "Timed out waiting for CRD $$crd. Check OpenTofu helm_release.eso."; \
+	      echo "Timed out waiting for CRD $$crd. Check the external-secrets Helm release."; \
 	      exit 1; \
 	    fi; \
 	    sleep 2; \

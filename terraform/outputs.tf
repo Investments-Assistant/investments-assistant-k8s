@@ -110,6 +110,16 @@ output "efs_id" {
   value       = module.eks.efs_id
 }
 
+output "efs_csi_role_arn" {
+  description = "IRSA role ARN used by the AWS EFS CSI driver Helm chart"
+  value       = try(module.eks.efs_csi_role_arn, "")
+}
+
+output "aws_load_balancer_controller_role_arn" {
+  description = "IRSA role ARN used by the AWS Load Balancer Controller Helm chart"
+  value       = try(module.eks.aws_load_balancer_controller_role_arn, "")
+}
+
 output "vpc_id" {
   value = module.vpc.vpc_id
 }

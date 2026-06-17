@@ -47,7 +47,7 @@ flowchart LR
 | `configmap.yaml` | Non-secret runtime settings and internal service URLs. |
 | `serviceaccount.yaml` | `investments-sa` with an IRSA role annotation for AWS access. |
 | `external-secrets.yaml` | Pulls `investments/prod` from AWS Secrets Manager into `investments-secrets` using External Secrets `v1` CRDs. |
-| `reports-pvc.yaml` | Shared ReadWriteMany PVC backed by the OpenTofu-created EFS StorageClass `efs-sc`. |
+| `reports-pvc.yaml` | Shared ReadWriteMany PVC backed by the Helm-created EFS StorageClass `efs-sc`. |
 | `ingress.yaml` | Internet-facing ALB Ingress that sends all traffic to `gateway:8000`. |
 | `llm/*` | Self-hosted Ollama-compatible LLM Deployment, ClusterIP Service, and model PVC. The Deployment targets the OpenTofu-created `workload=llm` node group. |
 | `<service>/deployment.yaml` | Service-specific Deployment. |
@@ -173,19 +173,32 @@ Cognito user-pool groups:
 - `investor`: market data, forex, news, simulations, and reports; no portfolio.
 - `admin`: all gateway capabilities.
 
+## Cluster Add-ons
+
+Before applying these manifests, install the shared cluster add-ons from the
+separate `Investments-Assistant/helm-charts` repository:
+
+```bash
+make helm-apply
+```
+
+That target installs or upgrades AWS EFS CSI driver, AWS Load Balancer
+Controller, and External Secrets Operator with values from OpenTofu outputs.
+
 ## Apply Order
 
 `make k8s-apply` applies manifests in dependency order:
 
-1. Namespace.
-2. ConfigMap.
-3. ServiceAccount.
-4. Reports PVC and LLM model PVC.
-5. Wait for PVCs to bind.
-6. Wait for External Secrets CRDs.
-7. ExternalSecret.
-8. Service deployments and ClusterIP Services.
-9. Ingress.
+1. Helm add-ons.
+2. Namespace.
+3. ConfigMap.
+4. ServiceAccount.
+5. Reports PVC and LLM model PVC.
+6. Wait for PVCs to bind.
+7. Wait for External Secrets CRDs.
+8. ExternalSecret.
+9. Service deployments and ClusterIP Services.
+10. Ingress.
 
 This order matters because pods reference `investments-sa` and
 `investments-secrets`, the gateway and scheduler mount `reports-pvc`, and the

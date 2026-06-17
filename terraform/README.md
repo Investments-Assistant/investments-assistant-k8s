@@ -9,6 +9,7 @@ repository and stores remote state in the S3 backend configured in `backend.tf`.
 ```mermaid
 flowchart LR
     VPC[VPC module] --> EKS[EKS module]
+    EKS --> Helm[Helm add-ons]
     VPC --> RDS[RDS module]
     VPC --> Redis[ElastiCache module]
     ACM[ACM module] --> K8s[Kubernetes manifests]
@@ -24,8 +25,8 @@ flowchart LR
 
 - A VPC with public and private subnets, an internet gateway, and a NAT gateway.
 - An EKS cluster, general managed node group, dedicated LLM managed node group,
-  core add-ons, AWS Load Balancer Controller, External Secrets Operator, and EFS
-  support for shared reports and local LLM model storage.
+  AWS-managed core add-ons, EFS support, and IAM roles for Helm-managed cluster
+  add-ons.
 - Aurora PostgreSQL Serverless v2 for service-owned tables.
 - ElastiCache Redis for shared runtime state such as trading mode.
 - One ECR repository per service image.
@@ -66,10 +67,11 @@ different name or account.
 
 Outputs in `outputs.tf` expose the EKS endpoint/name/CA data, ECR repository
 URLs, RDS endpoint, RDS port, RDS database name, RDS master username, Redis
-endpoint, WAF WebACL ARN, IRSA role ARN, EFS ID, and VPC ID. When enabled, the
-ACM certificate ARN and Cognito user-pool outputs are also exposed for the ALB
-Ingress and gateway ConfigMap. The Makefile renders these values into
-Kubernetes manifests before deploying workloads.
+endpoint, WAF WebACL ARN, application IRSA role ARN, EFS ID, VPC ID, and the
+IRSA role ARNs used by Helm-managed add-ons. When enabled, the ACM certificate
+ARN and Cognito user-pool outputs are also exposed for the ALB Ingress and
+gateway ConfigMap. The Makefile renders these values into Kubernetes manifests
+and Helm values before deploying workloads.
 
 ## File Layout
 
@@ -92,7 +94,8 @@ The stack consumes these module directories from
 `git@github.com:Investments-Assistant/terraform-modules.git`:
 
 - `vpc`: network foundation.
-- `eks`: Kubernetes cluster, worker node groups, controllers, and EFS.
+- `eks`: Kubernetes cluster, worker node groups, EFS, and IAM roles for
+  Helm-managed add-ons.
 - `rds`: Aurora PostgreSQL.
 - `elasticache`: Redis.
 - `ecr`: service image repositories.
@@ -101,7 +104,11 @@ The stack consumes these module directories from
 - `waf`: ALB-facing WAF allowlist.
 - `secrets`: IAM roles, AWS Secrets Manager permissions, and ALB log bucket.
 
-The source references are pinned to the `terraform-modules` `v1.1.0` release.
+The source references are pinned to `terraform-modules` release tags. After
+publishing a new `terraform-modules` release, bump the module refs here before
+running `make tf-apply`; `make helm-apply` uses the EKS module outputs for the
+EFS CSI and AWS Load Balancer Controller role ARNs when available, and falls
+back to the module's conventional role names during the release transition.
 
 ## Basic Usage
 
