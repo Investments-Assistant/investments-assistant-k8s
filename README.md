@@ -147,7 +147,8 @@ make deploy-e2e
 
 `deploy-e2e` runs OpenTofu, updates kubeconfig, builds and pushes service
 images to ECR, renders Kubernetes manifests with OpenTofu outputs, applies
-them, and waits for rollouts. OpenTofu writes `db_password` from
+them, updates the Route 53 ALIAS for `app_domain_name` when configured, and
+waits for rollouts. OpenTofu writes `db_password` from
 `terraform.tfvars` into the `investments/prod` Secrets Manager secret as
 `POSTGRES_PASSWORD`; the rendered ConfigMap uses OpenTofu outputs for the RDS
 host, port, database name, username, and application IP allowlist. Rendered
@@ -170,6 +171,15 @@ gateway Basic Auth. Without your own domain and ACM certificate, the ALB
 hostname is HTTP-only, so credentials are not encrypted in transit even though
 the WAF allowlist limits who can reach it.
 
+For HTTPS, browse to your configured domain, not the raw ALB hostname. The raw
+`*.elb.amazonaws.com` name cannot use your ACM certificate. The deployment flow
+creates the ACM certificate, attaches it to the ALB HTTPS listener, and upserts
+a Route 53 ALIAS from `app_domain_name` to the ALB:
+
+```bash
+make route53-alias
+```
+
 When Cognito auth is enabled, users sign in through the ALB/Cognito hosted UI.
 The gateway validates Cognito tokens and applies group-based permissions:
 `viewer` can chat about news, `investor` can use non-portfolio analysis tools,
@@ -182,6 +192,11 @@ model into the `llm` pod.
 The Makefile assumes AWS region `eu-south-2` by default. Keep OpenTofu, ECR,
 ACM, WAF, Kubernetes manifests, and GitHub Actions aligned to the same region.
 OpenTofu targets EKS Kubernetes `1.33` by default.
+
+GitHub Actions deployments use AWS OIDC. Configure `AWS_DEPLOY_ROLE_ARN` as a
+repository variable or secret before running `build-push.yml` or `deploy.yml`.
+If it is missing, the workflows fail before `aws-actions/configure-aws-credentials`
+with a direct configuration error.
 
 The self-hosted LLM deployment is scheduled onto a dedicated EKS node group by
 default. Keep `enable_llm_node_group=true` in OpenTofu unless you resize the

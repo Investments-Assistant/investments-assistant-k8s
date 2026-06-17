@@ -160,7 +160,9 @@ HTTP Basic Auth over the built-in ALB hostname is still plain HTTP. The WAF
 allowlist limits who can reach it, but the credentials are not encrypted in
 transit. For encrypted browser authentication, configure a domain with
 `app_domain_name` plus a Route 53 zone so OpenTofu can issue an ACM certificate,
-then browse through that custom HTTPS domain.
+then run `make route53-alias` after the Ingress exists and browse through that
+custom HTTPS domain. The raw `*.elb.amazonaws.com` hostname cannot use your ACM
+certificate.
 
 Cognito/ALB authentication also requires the custom HTTPS path. When
 `enable_cognito_auth=true`, `make k8s-render` renders the ALB Cognito

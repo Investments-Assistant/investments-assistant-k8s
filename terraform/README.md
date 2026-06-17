@@ -64,6 +64,20 @@ ACM certificate ARN and Cognito user-pool outputs are also exposed for the ALB
 Ingress and gateway ConfigMap. The Makefile renders these values into
 Kubernetes manifests before deploying workloads.
 
+## File Layout
+
+The stack is split by ownership instead of keeping every resource in
+`main.tf`:
+
+- `data.tf`: AWS account and availability-zone data sources.
+- `locals.tf`: derived values such as AZ selection and Cognito callback URLs.
+- `networking.tf`: VPC module.
+- `compute.tf`: EKS module.
+- `data_services.tf`: Aurora PostgreSQL and ElastiCache modules.
+- `registry.tf`: ECR repositories.
+- `edge.tf`: WAF, ACM, and Cognito edge/auth resources.
+- `secrets.tf`: Secrets Manager secret and IRSA/secrets module.
+
 ## Modules
 
 The stack consumes these module directories from
@@ -79,9 +93,7 @@ The stack consumes these module directories from
 - `waf`: ALB-facing WAF allowlist.
 - `secrets`: IAM roles, AWS Secrets Manager permissions, and ALB log bucket.
 
-The source references currently use `ref=main` while the modules repository is
-being bootstrapped. Pin them to a release tag or commit SHA after the first
-module release is published.
+The source references are pinned to the `terraform-modules` `v1.1.0` release.
 
 ## Basic Usage
 
@@ -105,6 +117,26 @@ app_secret_values = {
 ```
 
 Do not include `POSTGRES_PASSWORD` there; it is derived from `db_password`.
+
+## HTTPS DNS Flow
+
+ACM cannot issue a certificate for the AWS-owned ALB hostname. To use HTTPS,
+configure a domain that you control:
+
+```hcl
+app_domain_name       = "assistant.example.com"
+app_route53_zone_name = "example.com."
+```
+
+OpenTofu creates and validates the ACM certificate. After Kubernetes creates the
+ALB, run:
+
+```bash
+make route53-alias
+```
+
+That target points `app_domain_name` at the ALB with a Route 53 ALIAS record.
+Use `https://assistant.example.com`, not the raw `*.elb.amazonaws.com` hostname.
 
 ## Cognito Role Groups
 

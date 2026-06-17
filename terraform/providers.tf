@@ -5,7 +5,7 @@ provider "aws" {
     tags = {
       Project     = "investments-assistant"
       Environment = var.environment
-      ManagedBy   = "terraform"
+      ManagedBy   = "opentofu"
     }
   }
 }

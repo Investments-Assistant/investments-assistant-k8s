@@ -6,11 +6,11 @@ environment = "prod"
 # LAN/VPN address here; use the public egress address with a /32 suffix.
 allowed_ip_cidrs = ["YOUR_VPN_PUBLIC_IPV4/32"]
 
-# Optional ALB HTTPS certificate. If set, OpenTofu creates and validates an ACM
-# certificate with Route 53 DNS validation.
-app_domain_name                           = null
+# Optional ALB HTTPS certificate. Set these to use HTTPS on your own domain.
+# The built-in *.elb.amazonaws.com hostname cannot use your ACM certificate.
+app_domain_name                           = "assistant.example.com"
 app_route53_zone_id                       = null
-app_route53_zone_name                     = null
+app_route53_zone_name                     = "example.com."
 app_certificate_subject_alternative_names = []
 
 # Optional Cognito/ALB authentication with role groups. This requires

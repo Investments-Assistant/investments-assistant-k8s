@@ -1,6 +1,6 @@
 .PHONY: help dev-up dev-down dev-build dev-logs dev-ps \
         deploy-e2e kubeconfig k8s-render k8s-apply-rendered \
-        k8s-wait-external-secrets k8s-wait-pvcs k8s-rollout-status llm-model alb-url k8s-apply k8s-delete k8s-status \
+        k8s-wait-external-secrets k8s-wait-pvcs k8s-rollout-status llm-model alb-url route53-alias k8s-apply k8s-delete k8s-status \
         tf-init tf-plan tf-apply tf-destroy \
         ecr-login push lint test
 
@@ -8,7 +8,7 @@ SHELL := /bin/bash
 AWS_REGION   ?= eu-south-2
 AWS_ACCOUNT  ?= $(shell aws sts get-caller-identity --query Account --output text)
 TOFU         ?= tofu
-ECR_REGISTRY := $(AWS_ACCOUNT).dkr.ecr.$(AWS_REGION).amazonaws.com
+ECR_REGISTRY = $(AWS_ACCOUNT).dkr.ecr.$(AWS_REGION).amazonaws.com
 APP_SERVICES := gateway market-data news portfolio simulation scheduler forex
 K8S_SERVICES := llm $(APP_SERVICES)
 K8S_NS       := investments
@@ -17,6 +17,8 @@ K8S_RENDER_DIR ?= .rendered/k8s
 TF_WORKSPACE ?= prod
 CLUSTER_NAME ?= investments-assistant
 ACM_CERT_ARN ?=
+ROUTE53_ZONE_ID ?=
+ROUTE53_ZONE_NAME ?=
 PULL_LLM_MODEL ?= true
 LLM_MODEL ?= llama3.1:8b
 
@@ -41,6 +43,7 @@ help:
 	@echo "    make k8s-delete    Delete all resources"
 	@echo "    make k8s-status    Show pod/service status"
 	@echo "    make alb-url       Show the AWS ALB hostname for the gateway"
+	@echo "    make route53-alias Create/update Route 53 alias for app_domain_name"
 	@echo ""
 	@echo "OpenTofu (AWS):"
 	@echo "    make tf-init       tofu init"
@@ -82,6 +85,7 @@ deploy-e2e:
 	@$(MAKE) k8s-apply K8S_MANIFEST_DIR=$(K8S_RENDER_DIR)
 	@$(MAKE) k8s-rollout-status
 	@$(MAKE) alb-url
+	@$(MAKE) route53-alias
 	@$(MAKE) llm-model
 	@echo "End-to-end deployment complete."
 
@@ -170,6 +174,39 @@ alb-url:
 	done; \
 	echo "ALB hostname is not ready yet. Check: kubectl -n $(K8S_NS) describe ingress investments-ingress"; \
 	exit 1
+
+route53-alias:
+	@$(TOFU) -chdir=terraform workspace select -or-create "$(TF_WORKSPACE)" >/dev/null
+	@TF_OUTPUTS="$$($(TOFU) -chdir=terraform output -no-color -json 2>/dev/null || echo '{}')"; \
+	APP_DOMAIN="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("app_domain_name", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
+	ZONE_ID="$(ROUTE53_ZONE_ID)"; \
+	ZONE_NAME="$(ROUTE53_ZONE_NAME)"; \
+	if [ -z "$$ZONE_ID" ]; then ZONE_ID="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("app_route53_zone_id", {}).get("value", ""); print(v or "")' 2>/dev/null)"; fi; \
+	if [ -z "$$ZONE_NAME" ]; then ZONE_NAME="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("app_route53_zone_name", {}).get("value", ""); print(v or "")' 2>/dev/null)"; fi; \
+	if [ -z "$$APP_DOMAIN" ]; then \
+	  echo "No app_domain_name configured; skipping Route 53 alias."; \
+	  exit 0; \
+	fi; \
+	HOST="$$(kubectl -n $(K8S_NS) get ingress investments-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"; \
+	if [ -z "$$HOST" ]; then \
+	  echo "ALB hostname is not ready. Run make alb-url first."; \
+	  exit 1; \
+	fi; \
+	if [ -z "$$ZONE_ID" ]; then \
+	  if [ -z "$$ZONE_NAME" ]; then \
+	    echo "Route 53 zone is missing. Set app_route53_zone_id/name or pass ROUTE53_ZONE_ID."; \
+	    exit 1; \
+	  fi; \
+	  ZONE_ID="$$(aws route53 list-hosted-zones-by-name --dns-name "$$ZONE_NAME" --query 'HostedZones[0].Id' --output text | sed 's|/hostedzone/||')"; \
+	fi; \
+	LB_ZONE_ID="$$(aws elbv2 describe-load-balancers --region "$(AWS_REGION)" --query "LoadBalancers[?DNSName=='$$HOST'].CanonicalHostedZoneId | [0]" --output text)"; \
+	if [ -z "$$LB_ZONE_ID" ] || [ "$$LB_ZONE_ID" = "None" ]; then \
+	  echo "Could not resolve ALB hosted zone ID for $$HOST"; \
+	  exit 1; \
+	fi; \
+	CHANGE_BATCH="$$(printf '{"Changes":[{"Action":"UPSERT","ResourceRecordSet":{"Name":"%s","Type":"A","AliasTarget":{"HostedZoneId":"%s","DNSName":"dualstack.%s","EvaluateTargetHealth":true}}}]}' "$$APP_DOMAIN" "$$LB_ZONE_ID" "$$HOST")"; \
+	aws route53 change-resource-record-sets --hosted-zone-id "$$ZONE_ID" --change-batch "$$CHANGE_BATCH" >/dev/null; \
+	echo "Route 53 alias updated: https://$$APP_DOMAIN -> $$HOST"
 
 # ── Kubernetes ────────────────────────────────────────────────────────────────
 k8s-apply:

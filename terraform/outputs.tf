@@ -65,6 +65,16 @@ output "app_domain_name" {
   value       = module.acm.domain_name
 }
 
+output "app_route53_zone_id" {
+  description = "Route 53 hosted zone ID used for application DNS, when provided directly"
+  value       = var.app_route53_zone_id
+}
+
+output "app_route53_zone_name" {
+  description = "Route 53 hosted zone name used for application DNS, when provided"
+  value       = var.app_route53_zone_name
+}
+
 output "auth_mode" {
   description = "Gateway auth mode rendered into Kubernetes manifests"
   value       = var.enable_cognito_auth ? "cognito" : "basic"

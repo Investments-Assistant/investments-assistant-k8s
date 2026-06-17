@@ -107,7 +107,7 @@ def client_ip(req: Request | WebSocket) -> str:
     client = req.client
     xff = headers.get("X-Forwarded-For")
     if xff:
-        return xff.split(",")[-1].strip()
+        return xff.split(",")[0].strip()
     return client.host if client else "0.0.0.0"
 
 

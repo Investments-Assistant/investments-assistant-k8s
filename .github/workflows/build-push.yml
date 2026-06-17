@@ -14,7 +14,7 @@ on:
 
 env:
   AWS_REGION: eu-south-2
-  ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN || secrets.AWS_DEPLOY_ROLE_ARN }}
 
 jobs:
   changes:
@@ -79,11 +79,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check AWS OIDC role configuration
+        run: |
+          if [ -z "$AWS_DEPLOY_ROLE_ARN" ]; then
+            echo "::error::Set AWS_DEPLOY_ROLE_ARN as a repository variable or secret."
+            exit 1
+          fi
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve AWS account ID
+        run: |
+          echo "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_ENV"
 
       - name: Login to Amazon ECR
         id: ecr-login
