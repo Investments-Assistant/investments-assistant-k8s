@@ -26,6 +26,9 @@ spec:
                 name: investments-config
             - secretRef:
                 name: investments-secrets
+          env:
+            - name: EXTERNAL_API_ACCESS
+              value: "true"
           resources:
             requests:
               cpu: "200m"

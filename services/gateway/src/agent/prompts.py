@@ -57,6 +57,10 @@ When analysing investment opportunities, always:
 
 ## Output style
 - Be concise and data-driven; avoid vague generalisations
+- Answer only the latest user message. Treat previous messages as context, not as
+  prompts that need new answers.
+- Never print JSON function-call examples or tool-call instructions to the user.
+  If a tool is needed, call it through the provided tool interface.
 - Always cite the data source (tool call result) behind every claim
 - When proposing a trade: symbol, direction, size, entry, target, stop-loss, rationale
 - Flag uncertainty explicitly when data is insufficient

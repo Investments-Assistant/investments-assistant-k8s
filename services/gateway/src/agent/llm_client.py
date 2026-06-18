@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import AsyncGenerator
 from typing import Any
 from uuid import uuid4
@@ -21,6 +22,102 @@ from src.auth import AuthContext, allowed_tool_definitions
 from src.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _latest_user_message(messages: list[dict[str, Any]]) -> str:
+    for message in reversed(messages):
+        if message.get("role") == "user":
+            content = message.get("content", "")
+            return content if isinstance(content, str) else str(content)
+    return ""
+
+
+def _direct_tool_intent(user_message: str) -> tuple[str, dict] | None:
+    normalized = re.sub(r"\s+", " ", user_message.strip().lower())
+    if not normalized:
+        return None
+
+    if "market overview" in normalized or "market snapshot" in normalized:
+        return "get_market_overview", {}
+
+    mode_match = re.search(
+        r"\b(?:switch|set|change)\b.*\b(?:trading\s+mode|mode)\b.*\b(auto|recommend)\b",
+        normalized,
+    )
+    if mode_match:
+        return "set_trading_mode", {"mode": mode_match.group(1)}
+
+    return None
+
+
+def _looks_like_tool_call_example(role: str | None, content: str) -> bool:
+    if role != "assistant":
+        return False
+    normalized = content.lower()
+    return (
+        "json function calls" in normalized
+        or "function calls with their proper arguments" in normalized
+        or ('{"name"' in content and '"parameters"' in content)
+    )
+
+
+def _format_number(value: Any) -> str:
+    if not isinstance(value, int | float):
+        return "n/a"
+    if abs(value) >= 1000:
+        return f"{value:,.2f}"
+    return f"{value:.2f}"
+
+
+def _format_market_overview(result_str: str) -> str:
+    try:
+        data = json.loads(result_str)
+    except json.JSONDecodeError:
+        return "I fetched the market overview, but the market-data response was not valid JSON."
+
+    if data.get("error"):
+        return (
+            "I could not fetch a live market overview. "
+            f"market-data returned: {data['error']} "
+            "Source: get_market_overview."
+        )
+
+    markets = data.get("markets")
+    if not isinstance(markets, dict) or not markets:
+        return "I fetched the market overview, but the response did not include market rows."
+
+    lines = ["Market overview right now, from `get_market_overview`:"]
+    for name, info in markets.items():
+        if not isinstance(info, dict):
+            continue
+        if info.get("error"):
+            lines.append(f"- {name}: unavailable ({info['error']})")
+            continue
+        symbol = info.get("symbol")
+        price = _format_number(info.get("price"))
+        change = info.get("change_pct")
+        change_text = f"{change:+.2f}%" if isinstance(change, int | float) else "n/a"
+        suffix = f" ({symbol})" if symbol else ""
+        lines.append(f"- {name}{suffix}: {price}, {change_text}")
+
+    lines.append("Informational only; not financial advice.")
+    return "\n".join(lines)
+
+
+def _format_direct_tool_response(tool_name: str, result_str: str) -> str:
+    if tool_name == "get_market_overview":
+        return _format_market_overview(result_str)
+
+    if tool_name == "set_trading_mode":
+        try:
+            data = json.loads(result_str)
+        except json.JSONDecodeError:
+            return "Trading mode update returned a malformed response."
+        if data.get("error"):
+            return f"I could not update trading mode: {data['error']}"
+        return data.get("message") or f"Trading mode is now {data.get('trading_mode', 'updated')}."
+
+    return ""
 
 
 def _openai_tools(auth_context: AuthContext | None) -> list[dict]:
@@ -44,7 +141,10 @@ def _history_to_openai(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if role not in {"user", "assistant", "system", "tool"}:
             continue
         content = message.get("content", "")
-        out.append({"role": role, "content": content if isinstance(content, str) else str(content)})
+        content = content if isinstance(content, str) else str(content)
+        if _looks_like_tool_call_example(role, content):
+            continue
+        out.append({"role": role, "content": content})
     return out
 
 
@@ -86,6 +186,33 @@ class LocalLLMClient:
         """
         working_messages = [{"role": "system", "content": system}]
         working_messages.extend(_history_to_openai(messages))
+
+        direct_intent = _direct_tool_intent(_latest_user_message(messages))
+        if direct_intent:
+            tool_name, tool_input = direct_intent
+            tool_id = f"call_{uuid4().hex}"
+            yield {
+                "type": "tool_call",
+                "name": tool_name,
+                "input": tool_input,
+                "id": tool_id,
+            }
+            result_str = await self._router.dispatch(
+                tool_name,
+                tool_input,
+                auth_context=auth_context,
+            )
+            yield {
+                "type": "tool_result",
+                "name": tool_name,
+                "result": result_str,
+                "id": tool_id,
+            }
+            summary = _format_direct_tool_response(tool_name, result_str)
+            if summary:
+                yield {"type": "text_delta", "text": summary}
+            yield {"type": "done"}
+            return
 
         async with aiohttp.ClientSession(timeout=self._timeout) as session:
             for _ in range(settings.agent_max_tool_iterations):
