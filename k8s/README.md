@@ -147,18 +147,20 @@ OpenTofu, ECR, ACM, WAF, and GitHub Actions.
 
 The deployed UI is not served from `localhost`. It is exposed through the AWS
 Load Balancer Controller Ingress. If you do not configure `app_domain_name` and
-ACM, the ingress is rendered HTTP-only and you use the AWS-managed ALB hostname:
+ACM, the ingress is rendered HTTP-only and CloudFront provides HTTPS on an
+AWS-managed `*.cloudfront.net` hostname:
 
 ```bash
-make alb-url
+make cloudfront-url
 ```
 
-That prints a URL like `http://<alb-name>.<region>.elb.amazonaws.com`. No
-Route 53 record is required for that built-in hostname.
+That prints a URL like `https://<distribution>.cloudfront.net`. No Route 53
+record is required for that built-in hostname.
 
 HTTP Basic Auth over the built-in ALB hostname is still plain HTTP. The WAF
 allowlist limits who can reach it, but the credentials are not encrypted in
-transit. For encrypted browser authentication, configure a domain with
+transit. Use the CloudFront HTTPS URL when you do not own a domain. For custom
+domain encrypted browser authentication, configure a domain with
 `app_domain_name` plus a Route 53 zone so OpenTofu can issue an ACM certificate,
 then run `make route53-alias` after the Ingress exists and browse through that
 custom HTTPS domain. The raw `*.elb.amazonaws.com` hostname cannot use your ACM

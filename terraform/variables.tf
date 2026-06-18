@@ -98,6 +98,24 @@ variable "app_certificate_subject_alternative_names" {
   default     = []
 }
 
+variable "cloudfront_origin_domain_name" {
+  description = "Optional ALB DNS name used by CloudFront to provide HTTPS on an AWS-managed cloudfront.net domain"
+  type        = string
+  default     = null
+}
+
+variable "cloudfront_price_class" {
+  description = "CloudFront price class for the AWS-managed HTTPS endpoint"
+  type        = string
+  default     = "PriceClass_100"
+}
+
+variable "cloudfront_wait_for_deployment" {
+  description = "Whether OpenTofu waits for the CloudFront distribution to finish deploying"
+  type        = bool
+  default     = true
+}
+
 variable "enable_cognito_auth" {
   description = "Enable Cognito/ALB authentication for the public gateway. Requires app_domain_name and HTTPS."
   type        = bool

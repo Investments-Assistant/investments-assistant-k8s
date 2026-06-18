@@ -233,5 +233,7 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 terraform/modules/**/.terraform.lock.hcl
+*tfplan*
+*outputs*
 ttplan*
 ttoutputs*

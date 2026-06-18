@@ -31,6 +31,8 @@ flowchart LR
 - ElastiCache Redis for shared runtime state such as trading mode.
 - One ECR repository per service image.
 - An optional DNS-validated ACM certificate for the public ALB.
+- An optional AWS-managed CloudFront HTTPS endpoint for deployments without a
+  custom domain.
 - Optional Cognito user-pool authentication with `viewer`, `investor`, and
   `admin` groups for gateway authorization.
 - An EKS access entry for the GitHub Actions deploy role created by
@@ -100,6 +102,7 @@ The stack consumes these module directories from
 - `elasticache`: Redis.
 - `ecr`: service image repositories.
 - `acm`: ALB HTTPS certificate and DNS validation.
+- `cloudfront_https`: AWS-managed `*.cloudfront.net` HTTPS endpoint.
 - `cognito`: user pool, ALB app client, hosted UI domain, and role groups.
 - `waf`: ALB-facing WAF allowlist.
 - `secrets`: IAM roles, AWS Secrets Manager permissions, and ALB log bucket.
@@ -135,8 +138,8 @@ Do not include `POSTGRES_PASSWORD` there; it is derived from `db_password`.
 
 ## HTTPS DNS Flow
 
-ACM cannot issue a certificate for the AWS-owned ALB hostname. To use HTTPS,
-configure a domain that you control:
+ACM cannot issue a certificate for the AWS-owned ALB hostname. To use
+custom-domain HTTPS, configure a domain that you control:
 
 ```hcl
 app_domain_name       = "assistant.example.com"
@@ -152,6 +155,12 @@ make route53-alias
 
 That target points `app_domain_name` at the ALB with a Route 53 ALIAS record.
 Use `https://assistant.example.com`, not the raw `*.elb.amazonaws.com` hostname.
+
+If you do not own a domain, run `make deploy-e2e` or `make cloudfront-apply`.
+The Makefile writes the live ALB hostname to `terraform/cloudfront.auto.tfvars`
+and OpenTofu creates a CloudFront distribution using the default AWS-managed
+`*.cloudfront.net` certificate. Use `make cloudfront-url` to print the HTTPS
+URL.
 
 ## Cognito Role Groups
 

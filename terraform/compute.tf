@@ -1,5 +1,5 @@
 module "eks" {
-  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//eks?ref=v1.5.0"
+  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//eks?ref=v2.0.0"
 
   cluster_name       = var.cluster_name
   k8s_version        = var.k8s_version

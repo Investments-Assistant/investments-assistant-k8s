@@ -75,6 +75,21 @@ output "app_route53_zone_name" {
   value       = var.app_route53_zone_name
 }
 
+output "cloudfront_distribution_id" {
+  description = "CloudFront distribution ID for the AWS-managed HTTPS endpoint"
+  value       = try(module.cloudfront_https[0].distribution_id, null)
+}
+
+output "cloudfront_domain_name" {
+  description = "AWS-managed CloudFront HTTPS hostname"
+  value       = try(module.cloudfront_https[0].domain_name, null)
+}
+
+output "cloudfront_url" {
+  description = "AWS-managed CloudFront HTTPS URL"
+  value       = try("https://${module.cloudfront_https[0].domain_name}", null)
+}
+
 output "auth_mode" {
   description = "Gateway auth mode rendered into Kubernetes manifests"
   value       = var.enable_cognito_auth ? "cognito" : "basic"

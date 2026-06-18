@@ -141,9 +141,10 @@ make lint
    for example `203.0.113.10/32`.
 3. Set `UI_AUTH_USERNAME` and `UI_AUTH_PASSWORD` in `app_secret_values` for the
    Basic Auth fallback path.
-4. Set `app_domain_name` and either `app_route53_zone_id` or
-   `app_route53_zone_name` if you want OpenTofu to create the ALB HTTPS
-   certificate.
+4. Optional: set `app_domain_name` and either `app_route53_zone_id` or
+   `app_route53_zone_name` if you want OpenTofu to create a custom-domain ALB
+   HTTPS certificate. If you do not own a domain, `make deploy-e2e` creates an
+   AWS-managed CloudFront HTTPS endpoint instead.
 5. Set `enable_cognito_auth=true` if you want Cognito user login and
    `viewer`/`investor`/`admin` role groups. This requires step 4.
 6. Clone `Investments-Assistant/helm-charts` next to this repository, or set
@@ -167,24 +168,33 @@ manifests are written to `.rendered/k8s` and are not committed.
 If you already have a certificate outside OpenTofu, you can override the
 OpenTofu output with `ACM_CERT_ARN=arn:aws:acm:...`.
 
-If no certificate is available, the generated ingress is HTTP-only. Set
-`app_domain_name` and a Route 53 zone in OpenTofu to enable HTTPS.
+If no ALB certificate is available, the generated ingress is HTTP-only and
+CloudFront provides the public HTTPS endpoint on an AWS-managed
+`*.cloudfront.net` hostname.
 
-For the no-Route-53 path, use the AWS-managed ALB hostname:
+For direct ALB access, use the AWS-managed ALB hostname:
 
 ```bash
 make alb-url
 ```
 
 That URL is not localhost; it is the public ALB entry point protected by WAF and
-gateway Basic Auth. Without your own domain and ACM certificate, the ALB
-hostname is HTTP-only, so credentials are not encrypted in transit even though
-the WAF allowlist limits who can reach it.
+gateway Basic Auth. The ALB hostname itself is HTTP-only when no ACM
+certificate is configured.
 
-For HTTPS, browse to your configured domain, not the raw ALB hostname. The raw
-`*.elb.amazonaws.com` name cannot use your ACM certificate. The deployment flow
-creates the ACM certificate, attaches it to the ALB HTTPS listener, and upserts
-a Route 53 ALIAS from `app_domain_name` to the ALB:
+For no-owned-domain HTTPS, use the AWS-managed CloudFront endpoint:
+
+```bash
+make cloudfront-url
+```
+
+CloudFront terminates HTTPS with the default `*.cloudfront.net` certificate and
+forwards requests to the ALB. Gateway Basic Auth remains enabled.
+
+For custom-domain HTTPS, browse to your configured domain, not the raw ALB
+hostname. The raw `*.elb.amazonaws.com` name cannot use your ACM certificate.
+The deployment flow creates the ACM certificate, attaches it to the ALB HTTPS
+listener, and upserts a Route 53 ALIAS from `app_domain_name` to the ALB:
 
 ```bash
 make route53-alias

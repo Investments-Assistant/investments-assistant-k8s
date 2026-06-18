@@ -1,7 +1,7 @@
 .PHONY: help dev-up dev-down dev-build dev-logs dev-ps \
         deploy-e2e kubeconfig k8s-render k8s-apply-rendered \
         helm-deps helm-apply helm-delete helm-status \
-        k8s-wait-external-secrets k8s-wait-pvcs k8s-restart-apps k8s-rollout-status llm-model alb-url route53-alias k8s-apply k8s-delete k8s-status \
+        k8s-wait-external-secrets k8s-wait-pvcs k8s-restart-apps k8s-rollout-status llm-model alb-url cloudfront-apply cloudfront-url route53-alias k8s-apply k8s-delete k8s-status \
         tf-init tf-validate tf-plan tf-apply tf-destroy \
         ecr-login push lint test
 
@@ -52,6 +52,8 @@ help:
 	@echo "    make k8s-delete    Delete all resources"
 	@echo "    make k8s-status    Show pod/service status"
 	@echo "    make alb-url       Show the AWS ALB hostname for the gateway"
+	@echo "    make cloudfront-apply Create/update the AWS-managed HTTPS endpoint"
+	@echo "    make cloudfront-url Show the AWS-managed HTTPS URL"
 	@echo "    make route53-alias Create/update Route 53 alias for app_domain_name"
 	@echo ""
 	@echo "OpenTofu (AWS):"
@@ -96,6 +98,7 @@ deploy-e2e:
 	@$(MAKE) k8s-restart-apps
 	@$(MAKE) k8s-rollout-status
 	@$(MAKE) alb-url
+	@$(MAKE) cloudfront-apply
 	@$(MAKE) route53-alias
 	@$(MAKE) llm-model
 	@echo "End-to-end deployment complete."
@@ -261,6 +264,34 @@ alb-url:
 	done; \
 	echo "ALB hostname is not ready yet. Check: kubectl -n $(K8S_NS) describe ingress investments-ingress"; \
 	exit 1
+
+cloudfront-apply:
+	@set -e; \
+	HOST=""; \
+	for i in $$(seq 1 60); do \
+	  HOST="$$(kubectl -n $(K8S_NS) get ingress investments-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"; \
+	  if [ -n "$$HOST" ]; then break; fi; \
+	  sleep 5; \
+	done; \
+	if [ -z "$$HOST" ]; then \
+	  echo "ALB hostname is not ready. Cannot configure CloudFront origin."; \
+	  exit 1; \
+	fi; \
+	printf 'cloudfront_origin_domain_name = "%s"\n' "$$HOST" > terraform/cloudfront.auto.tfvars; \
+	$(TOFU) -chdir=terraform init -reconfigure -upgrade; \
+	$(TOFU) -chdir=terraform workspace select -or-create "$(TF_ENV)"; \
+	$(TOFU) -chdir=terraform validate -var-file="$(TF_ENV).tfvars"; \
+	$(TOFU) -chdir=terraform plan -var-file="$(TF_ENV).tfvars" -out=cloudfront.tfplan -json-into=cloudfront.tfplan.json; \
+	$(TOFU) -chdir=terraform apply -auto-approve -json-into=cloudfront.outputs.json cloudfront.tfplan
+	@$(MAKE) cloudfront-url
+
+cloudfront-url:
+	@URL="$$($(TOFU) -chdir=terraform output -no-color -json cloudfront_url 2>/dev/null | python3 -c 'import json, sys; print(json.load(sys.stdin) or "")' 2>/dev/null || true)"; \
+	if [ -n "$$URL" ]; then \
+	  echo "AWS-managed HTTPS URL: $$URL"; \
+	else \
+	  echo "CloudFront HTTPS endpoint is not configured yet. Run make cloudfront-apply."; \
+	fi
 
 route53-alias:
 	@$(TOFU) -chdir=terraform workspace select -or-create "$(TF_ENV)" >/dev/null
