@@ -123,7 +123,7 @@ Redis, the local Ollama-compatible LLM service, and all seven application servic
 Before using chat locally, load a model into Ollama:
 
 ```bash
-docker compose exec llm ollama pull llama3.1:8b-instruct
+docker compose exec llm ollama pull llama3.1:8b
 ```
 
 Useful commands:

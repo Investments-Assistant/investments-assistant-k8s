@@ -83,7 +83,7 @@ application services using `docker-compose.yml`. Gateway is available on
 Pull the configured model before using chat:
 
 ```bash
-docker compose exec llm ollama pull llama3.1:8b-instruct
+docker compose exec llm ollama pull llama3.1:8b
 ```
 
 To work on one service directly:

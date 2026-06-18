@@ -7,6 +7,8 @@ metadata:
     app: llm
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: llm
@@ -32,13 +34,15 @@ spec:
               value: "0.0.0.0:11434"
             - name: OLLAMA_KEEP_ALIVE
               value: "24h"
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "1"
           resources:
             requests:
               cpu: "1"
-              memory: "4Gi"
+              memory: "10Gi"
             limits:
               cpu: "4"
-              memory: "8Gi"
+              memory: "14Gi"
           volumeMounts:
             - name: ollama-models
               mountPath: /root/.ollama

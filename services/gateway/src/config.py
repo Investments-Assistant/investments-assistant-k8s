@@ -87,12 +87,12 @@ class Settings(BaseSettings):
     # ── Self-hosted LLM ───────────────────────────────────────────────────────
     llm_base_url: str = "http://llm:11434/v1"
     llm_api_key: str = ""
-    llm_model_name: str = "llama3.1:8b-instruct"
+    llm_model_name: str = "llama3.1:8b"
     agent_max_tokens: int = 4096
     agent_temperature: float = 0.1
     agent_max_context_messages: int = 20
     agent_max_tool_iterations: int = 8
-    llm_request_timeout_seconds: int = 300
+    llm_request_timeout_seconds: int = 1200
 
     # ── Trading ────────────────────────────────────────────────────────────────
     trading_mode: Literal["recommend", "auto"] = "recommend"

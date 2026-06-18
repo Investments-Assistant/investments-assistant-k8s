@@ -33,7 +33,7 @@ metadata:
     alb.ingress.kubernetes.io/healthcheck-path: /api/health
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
     # ALB access logs
-    alb.ingress.kubernetes.io/load-balancer-attributes: access_logs.s3.enabled=true,access_logs.s3.bucket=investments-alb-logs,access_logs.s3.prefix=investments
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=600,access_logs.s3.enabled=true,access_logs.s3.bucket=investments-alb-logs,access_logs.s3.prefix=investments
 spec:
   rules:
     - http:

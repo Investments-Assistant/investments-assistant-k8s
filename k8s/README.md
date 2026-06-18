@@ -214,7 +214,7 @@ before using the gateway chat. One practical path is to exec into the pod and
 run:
 
 ```bash
-ollama pull llama3.1:8b-instruct
+ollama pull llama3.1:8b
 ```
 
 For stricter no-egress deployments, prebuild an internal Ollama image or preload

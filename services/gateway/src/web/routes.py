@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
 from datetime import UTC, datetime
@@ -29,9 +31,48 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 STATIC_DIR = Path(__file__).parent / "static"
+WS_KEEPALIVE_SECONDS = 15
 
 
 # ── WebSocket chat ─────────────────────────────────────────────────────────────
+
+
+async def _send_chat_events(
+    websocket: WebSocket,
+    session,
+    user_msg: str,
+    auth_context: AuthContext,
+) -> None:
+    queue: asyncio.Queue[dict | None] = asyncio.Queue()
+
+    async def produce() -> None:
+        try:
+            async for event in session.chat(user_msg, auth_context=auth_context):
+                await queue.put(event)
+        except Exception as exc:
+            logger.exception("Chat stream failed")
+            await queue.put({"type": "error", "message": str(exc)})
+        finally:
+            await queue.put(None)
+
+    producer = asyncio.create_task(produce())
+    try:
+        await websocket.send_json({"type": "status", "message": "thinking"})
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=WS_KEEPALIVE_SECONDS)
+            except TimeoutError:
+                await websocket.send_json({"type": "status", "message": "thinking"})
+                continue
+
+            if event is None:
+                return
+            await websocket.send_json(event)
+    finally:
+        if not producer.done():
+            producer.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await producer
 
 
 @router.websocket("/ws/chat/{session_id}")
@@ -65,8 +106,7 @@ async def ws_chat(websocket: WebSocket, session_id: str) -> None:
             if not user_msg:
                 continue
 
-            async for event in session.chat(user_msg, auth_context=auth_context):
-                await websocket.send_json(event)
+            await _send_chat_events(websocket, session, user_msg, auth_context)
 
     except WebSocketDisconnect:
         logger.info("WS disconnected session=%s", session_id)
