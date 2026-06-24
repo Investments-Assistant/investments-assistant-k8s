@@ -83,7 +83,7 @@ contain sensitive values such as:
 - `UI_AUTH_PASSWORD`
 
 OpenTofu writes `POSTGRES_PASSWORD` from `db_password` in
-`terraform/$(TF_ENV).tfvars`.
+`opentofu/$(TF_ENV).tfvars`.
 
 In production, external browser/API traffic must pass the edge allowlist and the
 configured gateway auth mode:
@@ -178,14 +178,16 @@ Cognito user-pool groups:
 ## Cluster Add-ons
 
 Before applying these manifests, install the shared cluster add-ons from the
-separate `Investments-Assistant/helm-charts` repository:
+separate `Investments-Assistant/helm-charts` repository. The charts are fetched
+as reusable modules; this repository owns the values in `helm-values/`:
 
 ```bash
 make helm-apply
 ```
 
-That target installs or upgrades AWS EFS CSI driver, AWS Load Balancer
-Controller, and External Secrets Operator with values from OpenTofu outputs.
+That target fetches the charts when needed, renders `.rendered/helm-values`
+from local values templates and OpenTofu outputs, then installs or upgrades AWS
+EFS CSI driver, AWS Load Balancer Controller, and External Secrets Operator.
 
 ## Apply Order
 

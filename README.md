@@ -53,7 +53,7 @@ flowchart TB
 
 | Path | Purpose |
 | --- | --- |
-| `terraform/` | AWS infrastructure stack that consumes shared modules from `Investments-Assistant/terraform-modules`. Start with `terraform/README.md`. |
+| `opentofu/` | AWS infrastructure stack that consumes shared modules from `Investments-Assistant/opentofu-modules`. Start with `opentofu/README.md`. |
 | `k8s/` | Kubernetes namespace, config, secrets wiring, service deployments, services, PVC, and ingress. See `k8s/README.md`. |
 | `services/` | FastAPI microservices. See `services/README.md` and each service README. |
 | `.github/workflows/` | CI workflows for image build/push and EKS deployment. |
@@ -78,8 +78,10 @@ OpenTofu builds the AWS infrastructure:
 - The secrets module creates IAM roles and permissions for Kubernetes service
   accounts and External Secrets.
 
-Helm installs the in-cluster add-ons from the separate
-`Investments-Assistant/helm-charts` repository:
+Helm installs the in-cluster add-ons from reusable charts in the separate
+`Investments-Assistant/helm-charts` repository. This repository owns the
+environment values in `helm-values/` and renders them from OpenTofu outputs
+before installation:
 
 - AWS EFS CSI driver plus the `efs-sc` StorageClass.
 - AWS Load Balancer Controller.
@@ -107,7 +109,7 @@ The service layer provides agent capabilities:
 - `simulation` provides backtesting.
 - `scheduler` coordinates recurring ingestion, autonomous scans, and reports.
 
-For implementation details, use the READMEs in `terraform/`, `k8s/`, and
+For implementation details, use the READMEs in `opentofu/`, `k8s/`, and
 `services/`.
 
 ## Local Development
@@ -136,7 +138,7 @@ make lint
 
 ## Cloud Deployment Flow
 
-1. Fill `terraform/prod.tfvars` from `terraform/env.tfvars.example`.
+1. Fill `opentofu/prod.tfvars` from `opentofu/env.tfvars.example`.
 2. Set `allowed_ip_cidrs` to the public IPv4 AWS sees from your home VPN egress,
    for example `203.0.113.10/32`.
 3. Set `UI_AUTH_USERNAME` and `UI_AUTH_PASSWORD` in `app_secret_values` for the
@@ -147,8 +149,10 @@ make lint
    AWS-managed CloudFront HTTPS endpoint instead.
 5. Set `enable_cognito_auth=true` if you want Cognito user login and
    `viewer`/`investor`/`admin` role groups. This requires step 4.
-6. Clone `Investments-Assistant/helm-charts` next to this repository, or set
-   `HELM_CHARTS_DIR` to its path.
+6. Set `HELM_CHARTS_REF` if you want a chart ref other than `main`.
+   `make helm-fetch` clones `Investments-Assistant/helm-charts` into
+   `.charts/helm-charts` by default; set `HELM_CHARTS_DIR` to use an existing
+   checkout.
 7. Run the end-to-end deployment:
 
 ```bash

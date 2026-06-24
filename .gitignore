@@ -217,7 +217,8 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Terraform
+# OpenTofu
+.charts/
 **/.terraform/
 .rendered/
 *.tfstate
@@ -232,8 +233,9 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
-terraform/modules/**/.terraform.lock.hcl
+opentofu/modules/**/.terraform.lock.hcl
 *tfplan*
 *outputs*
+!**/outputs.tf
 ttplan*
 ttoutputs*

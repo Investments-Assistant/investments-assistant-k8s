@@ -1,6 +1,6 @@
 .PHONY: help dev-up dev-down dev-build dev-logs dev-ps \
         deploy-e2e kubeconfig k8s-render k8s-apply-rendered \
-        helm-deps helm-apply helm-delete helm-status \
+        helm-fetch helm-deps helm-values-render helm-apply helm-delete helm-status \
         k8s-wait-external-secrets k8s-wait-pvcs k8s-restart-apps k8s-rollout-status llm-model alb-url cloudfront-apply cloudfront-url route53-alias k8s-apply k8s-delete k8s-status \
         tf-init tf-validate tf-plan tf-apply tf-destroy \
         ecr-login push lint test
@@ -16,7 +16,11 @@ K8S_SERVICES := llm $(APP_SERVICES)
 K8S_NS       := investments
 K8S_MANIFEST_DIR ?= k8s
 K8S_RENDER_DIR ?= .rendered/k8s
-HELM_CHARTS_DIR ?= ../helm-charts
+HELM_CHARTS_REPO ?= git@github.com:Investments-Assistant/helm-charts.git
+HELM_CHARTS_REF ?= main
+HELM_CHARTS_DIR ?= .charts/helm-charts
+HELM_VALUES_DIR ?= helm-values
+HELM_RENDER_DIR ?= .rendered/helm-values
 ifdef TF_WORKSPACE
 TF_ENV ?= $(TF_WORKSPACE)
 else
@@ -47,6 +51,8 @@ help:
 	@echo "    make deploy-e2e"
 	@echo ""
 	@echo "Kubernetes:"
+	@echo "    make helm-fetch    Fetch shared Helm charts"
+	@echo "    make helm-values-render Render local Helm values from OpenTofu outputs"
 	@echo "    make helm-apply    Install or upgrade cluster add-on Helm charts"
 	@echo "    make k8s-apply     Apply all manifests to current kubectl context"
 	@echo "    make k8s-delete    Delete all resources"
@@ -104,8 +110,8 @@ deploy-e2e:
 	@echo "End-to-end deployment complete."
 
 kubeconfig:
-	@$(TOFU) -chdir=terraform workspace select -or-create "$(TF_ENV)" >/dev/null
-	@TF_OUTPUTS="$$($(TOFU) -chdir=terraform output -no-color -json 2>/dev/null || echo '{}')"; \
+	@$(TOFU) -chdir=opentofu workspace select -or-create "$(TF_ENV)" >/dev/null
+	@TF_OUTPUTS="$$($(TOFU) -chdir=opentofu output -no-color -json 2>/dev/null || echo '{}')"; \
 	CLUSTER="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("cluster_name", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
 	if [ -z "$$CLUSTER" ]; then CLUSTER="$(CLUSTER_NAME)"; fi; \
 	echo "Updating kubeconfig for $$CLUSTER in $(AWS_REGION)"; \
@@ -116,10 +122,10 @@ k8s-render:
 	@rm -rf "$(K8S_RENDER_DIR)"
 	@mkdir -p "$(dir $(K8S_RENDER_DIR))"
 	@cp -R k8s "$(K8S_RENDER_DIR)"
-	@$(TOFU) -chdir=terraform workspace select -or-create "$(TF_ENV)" >/dev/null
+	@$(TOFU) -chdir=opentofu workspace select -or-create "$(TF_ENV)" >/dev/null
 	@ACCOUNT="$$(aws sts get-caller-identity --query Account --output text)"; \
 	AWS_REGION="$(AWS_REGION)"; \
-	TF_OUTPUTS="$$($(TOFU) -chdir=terraform output -no-color -json 2>/dev/null || echo '{}')"; \
+	TF_OUTPUTS="$$($(TOFU) -chdir=opentofu output -no-color -json 2>/dev/null || echo '{}')"; \
 	ALLOWED_IPS="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("allowed_ip_cidrs", {}).get("value", []); print(",".join(v) if isinstance(v, list) else str(v or ""))' 2>/dev/null)"; \
 	AUTH_MODE="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("auth_mode", {}).get("value", "basic"); print(v or "basic")' 2>/dev/null)"; \
 	RDS_ENDPOINT="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("rds_endpoint", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
@@ -160,8 +166,18 @@ k8s-apply-rendered: k8s-render
 	$(MAKE) k8s-apply K8S_MANIFEST_DIR=$(K8S_RENDER_DIR)
 
 # ── Helm cluster add-ons ─────────────────────────────────────────────────────
-helm-deps:
-	@test -d "$(HELM_CHARTS_DIR)/charts" || { echo "Missing Helm charts at $(HELM_CHARTS_DIR). Clone Investments-Assistant/helm-charts or set HELM_CHARTS_DIR."; exit 1; }
+helm-fetch:
+	@if [ -d "$(HELM_CHARTS_DIR)/charts" ]; then \
+	  echo "Using Helm charts at $(HELM_CHARTS_DIR)"; \
+	else \
+	  echo "Fetching Helm charts from $(HELM_CHARTS_REPO) at $(HELM_CHARTS_REF)"; \
+	  rm -rf "$(HELM_CHARTS_DIR)"; \
+	  mkdir -p "$(dir $(HELM_CHARTS_DIR))"; \
+	  git clone --depth 1 --branch "$(HELM_CHARTS_REF)" "$(HELM_CHARTS_REPO)" "$(HELM_CHARTS_DIR)"; \
+	fi
+
+helm-deps: helm-fetch
+	@test -d "$(HELM_CHARTS_DIR)/charts" || { echo "Missing Helm charts at $(HELM_CHARTS_DIR). Run make helm-fetch or set HELM_CHARTS_DIR."; exit 1; }
 	@$(HELM) repo add aws-efs-csi-driver https://kubernetes-sigs.github.io/aws-efs-csi-driver/ --force-update >/dev/null
 	@$(HELM) repo add eks https://aws.github.io/eks-charts --force-update >/dev/null
 	@$(HELM) repo add external-secrets https://charts.external-secrets.io --force-update >/dev/null
@@ -170,22 +186,16 @@ helm-deps:
 	  $(HELM) dependency build "$(HELM_CHARTS_DIR)/charts/$$chart"; \
 	done
 
-helm-apply: helm-deps
-	@$(TOFU) -chdir=terraform workspace select -or-create "$(TF_ENV)" >/dev/null
+helm-values-render:
+	@$(TOFU) -chdir=opentofu workspace select -or-create "$(TF_ENV)" >/dev/null
 	@set -e; \
-	TF_OUTPUTS="$$($(TOFU) -chdir=terraform output -no-color -json 2>/dev/null || echo '{}')"; \
+	TF_OUTPUTS="$$($(TOFU) -chdir=opentofu output -no-color -json 2>/dev/null || echo '{}')"; \
 	ACCOUNT="$$(aws sts get-caller-identity --query Account --output text)"; \
-	CLUSTER="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; print(json.loads(os.environ["TF_OUTPUTS"]).get("cluster_name", {}).get("value", ""))' 2>/dev/null)"; \
-	VPC_ID="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; print(json.loads(os.environ["TF_OUTPUTS"]).get("vpc_id", {}).get("value", ""))' 2>/dev/null)"; \
-	EFS_ID="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; print(json.loads(os.environ["TF_OUTPUTS"]).get("efs_id", {}).get("value", ""))' 2>/dev/null)"; \
-	EFS_CSI_ROLE_ARN="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; print(json.loads(os.environ["TF_OUTPUTS"]).get("efs_csi_role_arn", {}).get("value", ""))' 2>/dev/null)"; \
-	ALBC_ROLE_ARN="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; print(json.loads(os.environ["TF_OUTPUTS"]).get("aws_load_balancer_controller_role_arn", {}).get("value", ""))' 2>/dev/null)"; \
-	if [ -z "$$EFS_CSI_ROLE_ARN" ] && [ -n "$$ACCOUNT" ] && [ -n "$$CLUSTER" ]; then EFS_CSI_ROLE_ARN="arn:aws:iam::$$ACCOUNT:role/$$CLUSTER-efs-csi-role"; fi; \
-	if [ -z "$$ALBC_ROLE_ARN" ] && [ -n "$$ACCOUNT" ] && [ -n "$$CLUSTER" ]; then ALBC_ROLE_ARN="arn:aws:iam::$$ACCOUNT:role/$$CLUSTER-albc-role"; fi; \
-	if [ -z "$$CLUSTER" ] || [ -z "$$VPC_ID" ] || [ -z "$$EFS_ID" ] || [ -z "$$EFS_CSI_ROLE_ARN" ] || [ -z "$$ALBC_ROLE_ARN" ]; then \
-	  echo "Missing OpenTofu outputs required for Helm add-ons. Run make tf-apply before make helm-apply."; \
-	  exit 1; \
-	fi; \
+	TF_OUTPUTS="$$TF_OUTPUTS" AWS_ACCOUNT="$$ACCOUNT" AWS_REGION="$(AWS_REGION)" \
+	  python3 scripts/render_helm_values.py --source-dir "$(HELM_VALUES_DIR)" --output-dir "$(HELM_RENDER_DIR)"
+
+helm-apply: helm-deps helm-values-render
+	@set -e; \
 	if kubectl get storageclass efs-sc >/dev/null 2>&1; then \
 	  kubectl label storageclass efs-sc app.kubernetes.io/managed-by=Helm --overwrite; \
 	  kubectl annotate storageclass efs-sc meta.helm.sh/release-name=aws-efs-csi-driver meta.helm.sh/release-namespace=kube-system --overwrite; \
@@ -195,29 +205,21 @@ helm-apply: helm-deps
 	  --atomic \
 	  --timeout 15m \
 	  --wait \
-	  --set-string 'aws-efs-csi-driver.controller.serviceAccount.annotations.eks\.amazonaws\.com/role-arn'="$$EFS_CSI_ROLE_ARN" \
-	  --set-string 'aws-efs-csi-driver.storageClasses[0].name'=efs-sc \
-	  --set-string 'aws-efs-csi-driver.storageClasses[0].parameters.provisioningMode'=efs-ap \
-	  --set-string 'aws-efs-csi-driver.storageClasses[0].parameters.fileSystemId'="$$EFS_ID" \
-	  --set-string 'aws-efs-csi-driver.storageClasses[0].parameters.directoryPerms'=700 \
-	  --set-string 'aws-efs-csi-driver.storageClasses[0].reclaimPolicy'=Retain \
-	  --set-string 'aws-efs-csi-driver.storageClasses[0].volumeBindingMode'=Immediate; \
+	  -f "$(HELM_RENDER_DIR)/aws-efs-csi-driver.yaml"; \
 	$(HELM) upgrade --install aws-load-balancer-controller "$(HELM_CHARTS_DIR)/charts/aws-load-balancer-controller" \
 	  --namespace kube-system \
 	  --atomic \
 	  --timeout 15m \
 	  --wait \
-	  --set-string 'aws-load-balancer-controller.clusterName'="$$CLUSTER" \
-	  --set-string 'aws-load-balancer-controller.region'="$(AWS_REGION)" \
-	  --set-string 'aws-load-balancer-controller.vpcId'="$$VPC_ID" \
-	  --set-string 'aws-load-balancer-controller.serviceAccount.annotations.eks\.amazonaws\.com/role-arn'="$$ALBC_ROLE_ARN"; \
+	  -f "$(HELM_RENDER_DIR)/aws-load-balancer-controller.yaml"; \
 	$(HELM) upgrade --install external-secrets "$(HELM_CHARTS_DIR)/charts/external-secrets" \
 	  --namespace external-secrets \
 	  --create-namespace \
 	  --atomic \
 	  --cleanup-on-fail \
 	  --timeout 15m \
-	  --wait
+	  --wait \
+	  -f "$(HELM_RENDER_DIR)/external-secrets.yaml"
 
 helm-delete:
 	-$(HELM) uninstall external-secrets --namespace external-secrets
@@ -277,16 +279,16 @@ cloudfront-apply:
 	  echo "ALB hostname is not ready. Cannot configure CloudFront origin."; \
 	  exit 1; \
 	fi; \
-	printf 'cloudfront_origin_domain_name = "%s"\n' "$$HOST" > terraform/cloudfront.auto.tfvars; \
-	$(TOFU) -chdir=terraform init -reconfigure -upgrade; \
-	$(TOFU) -chdir=terraform workspace select -or-create "$(TF_ENV)"; \
-	$(TOFU) -chdir=terraform validate -var-file="$(TF_ENV).tfvars"; \
-	$(TOFU) -chdir=terraform plan -var-file="$(TF_ENV).tfvars" -out=cloudfront.tfplan -json-into=cloudfront.tfplan.json; \
-	$(TOFU) -chdir=terraform apply -auto-approve -json-into=cloudfront.outputs.json cloudfront.tfplan
+	printf 'cloudfront_origin_domain_name = "%s"\n' "$$HOST" > opentofu/cloudfront.auto.tfvars; \
+	$(TOFU) -chdir=opentofu init -reconfigure -upgrade; \
+	$(TOFU) -chdir=opentofu workspace select -or-create "$(TF_ENV)"; \
+	$(TOFU) -chdir=opentofu validate -var-file="$(TF_ENV).tfvars"; \
+	$(TOFU) -chdir=opentofu plan -var-file="$(TF_ENV).tfvars" -out=cloudfront.tfplan -json-into=cloudfront.tfplan.json; \
+	$(TOFU) -chdir=opentofu apply -auto-approve -json-into=cloudfront.outputs.json cloudfront.tfplan
 	@$(MAKE) cloudfront-url
 
 cloudfront-url:
-	@URL="$$($(TOFU) -chdir=terraform output -no-color -json cloudfront_url 2>/dev/null | python3 -c 'import json, sys; print(json.load(sys.stdin) or "")' 2>/dev/null || true)"; \
+	@URL="$$($(TOFU) -chdir=opentofu output -no-color -json cloudfront_url 2>/dev/null | python3 -c 'import json, sys; print(json.load(sys.stdin) or "")' 2>/dev/null || true)"; \
 	if [ -n "$$URL" ]; then \
 	  echo "AWS-managed HTTPS URL: $$URL"; \
 	else \
@@ -294,8 +296,8 @@ cloudfront-url:
 	fi
 
 route53-alias:
-	@$(TOFU) -chdir=terraform workspace select -or-create "$(TF_ENV)" >/dev/null
-	@TF_OUTPUTS="$$($(TOFU) -chdir=terraform output -no-color -json 2>/dev/null || echo '{}')"; \
+	@$(TOFU) -chdir=opentofu workspace select -or-create "$(TF_ENV)" >/dev/null
+	@TF_OUTPUTS="$$($(TOFU) -chdir=opentofu output -no-color -json 2>/dev/null || echo '{}')"; \
 	APP_DOMAIN="$$(TF_OUTPUTS="$$TF_OUTPUTS" python3 -c 'import json, os; v=json.loads(os.environ["TF_OUTPUTS"]).get("app_domain_name", {}).get("value", ""); print(v or "")' 2>/dev/null)"; \
 	ZONE_ID="$(ROUTE53_ZONE_ID)"; \
 	ZONE_NAME="$(ROUTE53_ZONE_NAME)"; \
@@ -378,20 +380,20 @@ k8s-status:
 
 # ── OpenTofu ──────────────────────────────────────────────────────────────────
 tf-init:
-	cd terraform && $(TOFU) init -reconfigure -upgrade
-	cd terraform && $(TOFU) workspace select -or-create $(TF_ENV)
+	cd opentofu && $(TOFU) init -reconfigure -upgrade
+	cd opentofu && $(TOFU) workspace select -or-create $(TF_ENV)
 
 tf-validate: tf-init
-	cd terraform && $(TOFU) validate -var-file=$(TF_ENV).tfvars
+	cd opentofu && $(TOFU) validate -var-file=$(TF_ENV).tfvars
 
 tf-plan: tf-validate
-	cd terraform && $(TOFU) plan -var-file=$(TF_ENV).tfvars -out=ttplan -json-into=ttplan.json
+	cd opentofu && $(TOFU) plan -var-file=$(TF_ENV).tfvars -out=ttplan -json-into=ttplan.json
 
 tf-apply: tf-plan
-	cd terraform && $(TOFU) apply -auto-approve -json-into=ttoutputs.json ttplan
+	cd opentofu && $(TOFU) apply -auto-approve -json-into=ttoutputs.json ttplan
 
 tf-destroy: tf-init
-	cd terraform && $(TOFU) destroy -auto-approve -var-file=$(TF_ENV).tfvars
+	cd opentofu && $(TOFU) destroy -auto-approve -var-file=$(TF_ENV).tfvars
 
 # ── ECR ───────────────────────────────────────────────────────────────────────
 ecr-login:

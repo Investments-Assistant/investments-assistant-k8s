@@ -1,0 +1,16 @@
+aws-efs-csi-driver:
+  controller:
+    serviceAccount:
+      create: true
+      name: efs-csi-controller-sa
+      annotations:
+        eks.amazonaws.com/role-arn: "REPLACE_WITH_EFS_CSI_ROLE_ARN"
+
+  storageClasses:
+    - name: efs-sc
+      parameters:
+        provisioningMode: efs-ap
+        fileSystemId: "REPLACE_WITH_EFS_ID"
+        directoryPerms: "700"
+      reclaimPolicy: Retain
+      volumeBindingMode: Immediate

@@ -1,5 +1,5 @@
 module "secrets" {
-  source = "git::ssh://git@github.com/Investments-Assistant/terraform-modules.git//secrets?ref=v2.0.0"
+  source = "git::ssh://git@github.com/Investments-Assistant/opentofu-modules.git//secrets?ref=0.0.1"
 
   cluster_name               = var.cluster_name
   account_id                 = local.account_id

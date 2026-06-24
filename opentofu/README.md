@@ -1,7 +1,7 @@
 # OpenTofu
 
 This folder provisions the AWS infrastructure used by the Kubernetes deployment.
-It composes shared modules from the `Investments-Assistant/terraform-modules`
+It composes shared modules from the `Investments-Assistant/opentofu-modules`
 repository and stores remote state in the S3 backend configured in `backend.tf`.
 
 ## Stack Overview
@@ -92,8 +92,9 @@ The stack is split by ownership instead of keeping every resource in
 
 ## Modules
 
-The stack consumes these module directories from
-`git@github.com:Investments-Assistant/terraform-modules.git`:
+The stack consumes these module directories from `opentofu-modules` using Git
+SSH sources such as
+`git::ssh://git@github.com/Investments-Assistant/opentofu-modules.git//ecr?ref=0.0.1`:
 
 - `vpc`: network foundation.
 - `eks`: Kubernetes cluster, worker node groups, EFS, and IAM roles for
@@ -107,11 +108,11 @@ The stack consumes these module directories from
 - `waf`: ALB-facing WAF allowlist.
 - `secrets`: IAM roles, AWS Secrets Manager permissions, and ALB log bucket.
 
-The source references are pinned to `terraform-modules` release tags. After
-publishing a new `terraform-modules` release, bump the module refs here before
-running `make tf-apply`; `make helm-apply` uses the EKS module outputs for the
+The source references are pinned to the `opentofu-modules` `0.0.1` release.
+After publishing a new module release, update the module refs before running
+`make tf-apply`; `make helm-apply` uses the EKS module outputs for the
 EFS CSI and AWS Load Balancer Controller role ARNs when available, and falls
-back to the module's conventional role names during the release transition.
+back to the module's conventional role names during module updates.
 
 ## Basic Usage
 
@@ -157,7 +158,7 @@ That target points `app_domain_name` at the ALB with a Route 53 ALIAS record.
 Use `https://assistant.example.com`, not the raw `*.elb.amazonaws.com` hostname.
 
 If you do not own a domain, run `make deploy-e2e` or `make cloudfront-apply`.
-The Makefile writes the live ALB hostname to `terraform/cloudfront.auto.tfvars`
+The Makefile writes the live ALB hostname to `opentofu/cloudfront.auto.tfvars`
 and OpenTofu creates a CloudFront distribution using the default AWS-managed
 `*.cloudfront.net` certificate. Use `make cloudfront-url` to print the HTTPS
 URL.

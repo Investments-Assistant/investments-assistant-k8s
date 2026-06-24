@@ -10,8 +10,8 @@ terraform {
 
   backend "s3" {
     # Created by core-infra OpenTofu (already exists)
-    bucket       = "invass-investments-assistant-k8s-terraform-state-20260508003100"
-    key          = "investments-k8s/terraform.tfstate"
+    bucket       = "invass-investments-assistant-k8s-tt-state"
+    key          = "investments-k8s/opentofu.tfstate"
     region       = "eu-south-2"
     use_lockfile = true
     encrypt      = true

@@ -1,0 +1,15 @@
+aws-load-balancer-controller:
+  clusterName: "REPLACE_WITH_CLUSTER_NAME"
+  region: "REPLACE_WITH_AWS_REGION"
+  vpcId: "REPLACE_WITH_VPC_ID"
+
+  serviceAccount:
+    create: true
+    name: aws-load-balancer-controller
+    annotations:
+      eks.amazonaws.com/role-arn: "REPLACE_WITH_ALBC_ROLE_ARN"
+
+  keepTLSSecret: true
+  enableServiceMutatorWebhook: false
+  serviceMutatorWebhookConfig:
+    failurePolicy: Ignore
