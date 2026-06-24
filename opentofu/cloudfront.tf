@@ -1,6 +1,6 @@
 module "cloudfront_https" {
   count  = local.cloudfront_https_enabled ? 1 : 0
-  source = "git::ssh://git@github.com/Investments-Assistant/opentofu-modules.git//cloudfront_https?ref=0.0.1"
+  source = "git::ssh://git@github.com/Investments-Assistant/opentofu-modules.git//cloudfront_https?ref=v0.0.1"
 
   name                = var.cluster_name
   origin_domain_name  = local.cloudfront_origin_domain_name

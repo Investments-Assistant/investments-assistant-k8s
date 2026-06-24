@@ -94,7 +94,7 @@ The stack is split by ownership instead of keeping every resource in
 
 The stack consumes these module directories from `opentofu-modules` using Git
 SSH sources such as
-`git::ssh://git@github.com/Investments-Assistant/opentofu-modules.git//ecr?ref=0.0.1`:
+`git::ssh://git@github.com/Investments-Assistant/opentofu-modules.git//ecr?ref=v0.0.1`:
 
 - `vpc`: network foundation.
 - `eks`: Kubernetes cluster, worker node groups, EFS, and IAM roles for
@@ -108,7 +108,7 @@ SSH sources such as
 - `waf`: ALB-facing WAF allowlist.
 - `secrets`: IAM roles, AWS Secrets Manager permissions, and ALB log bucket.
 
-The source references are pinned to the `opentofu-modules` `0.0.1` release.
+The source references are pinned to the `opentofu-modules` `v0.0.1` release.
 After publishing a new module release, update the module refs before running
 `make tf-apply`; `make helm-apply` uses the EKS module outputs for the
 EFS CSI and AWS Load Balancer Controller role ARNs when available, and falls

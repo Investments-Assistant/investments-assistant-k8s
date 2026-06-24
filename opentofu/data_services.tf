@@ -1,5 +1,5 @@
 module "rds" {
-  source = "git::ssh://git@github.com/Investments-Assistant/opentofu-modules.git//rds?ref=0.0.1"
+  source = "git::ssh://git@github.com/Investments-Assistant/opentofu-modules.git//rds?ref=v0.0.1"
 
   cluster_name       = var.cluster_name
   vpc_id             = module.vpc.vpc_id
@@ -14,7 +14,7 @@ module "rds" {
 }
 
 module "elasticache" {
-  source = "git::ssh://git@github.com/Investments-Assistant/opentofu-modules.git//elasticache?ref=0.0.1"
+  source = "git::ssh://git@github.com/Investments-Assistant/opentofu-modules.git//elasticache?ref=v0.0.1"
 
   cluster_name       = var.cluster_name
   vpc_id             = module.vpc.vpc_id
