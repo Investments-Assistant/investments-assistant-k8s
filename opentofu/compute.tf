@@ -1,5 +1,5 @@
 module "eks" {
-  source = "git::ssh://git@github.com/Investments-Assistant/opentofu-modules.git//eks?ref=v0.0.1"
+  source = "git::ssh://git@github.com/Investments-Assistant/opentofu-modules.git//eks?ref=v1.0.0"
 
   cluster_name       = var.cluster_name
   k8s_version        = var.k8s_version

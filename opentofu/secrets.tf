@@ -1,5 +1,5 @@
 module "secrets" {
-  source = "git::ssh://git@github.com/Investments-Assistant/opentofu-modules.git//secrets?ref=v0.0.1"
+  source = "git::ssh://git@github.com/Investments-Assistant/opentofu-modules.git//secrets?ref=v1.0.0"
 
   cluster_name               = var.cluster_name
   account_id                 = local.account_id

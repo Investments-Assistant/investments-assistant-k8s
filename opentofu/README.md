@@ -94,7 +94,7 @@ The stack is split by ownership instead of keeping every resource in
 
 The stack consumes these module directories from `opentofu-modules` using Git
 SSH sources such as
-`git::ssh://git@github.com/Investments-Assistant/opentofu-modules.git//ecr?ref=v0.0.1`:
+`git::ssh://git@github.com/Investments-Assistant/opentofu-modules.git//ecr?ref=v1.0.0`:
 
 - `vpc`: network foundation.
 - `eks`: Kubernetes cluster, worker node groups, EFS, and IAM roles for
